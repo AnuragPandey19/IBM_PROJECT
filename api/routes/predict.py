@@ -171,6 +171,17 @@ def predict(
             raise HTTPException(500, "Model artifacts not loaded on this server.")
 
     raw_dict = payload.as_raw_dict()
+
+    # Extract ground-truth label if caller supplied one in extras
+    # (e.g. when scoring a labelled sample from the parquet). Real-world API
+    # callers won't send this — it stays None for unknown.
+    is_fraud_val = raw_dict.get("isFraud")
+    if is_fraud_val is not None:
+        try:
+            is_fraud_val = bool(int(is_fraud_val))
+        except (TypeError, ValueError):
+            is_fraud_val = None
+
     txn = Transaction(
         external_id=payload.external_id,
         transaction_dt=payload.TransactionDT,
@@ -184,6 +195,7 @@ def predict(
         device_type=payload.DeviceType,
         device_info=payload.DeviceInfo,
         raw_features=raw_dict,
+        is_fraud=is_fraud_val,
     )
     db.add(txn)
     db.flush()

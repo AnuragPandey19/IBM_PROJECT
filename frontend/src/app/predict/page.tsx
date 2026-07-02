@@ -71,12 +71,13 @@ function rowToForm(row: SampleRow): FormState {
 
 function rowToExtras(row: SampleRow): Record<string, unknown> {
   // Include EVERYTHING from the parquet row except pure metadata.
-  // Categorical form fields (ProductCD, card4, card6, DeviceType) are stored
-  // in the parquet as label-encoded integers — we must send those integer
-  // versions in extras so they override the form's string values on the
-  // backend (payload.as_raw_dict() applies extras on top of top-level fields).
+  // - Categorical form fields (ProductCD, card4, card6, DeviceType) are stored
+  //   in the parquet as label-encoded integers — we must send those integer
+  //   versions so they override the form's string values on the backend.
+  // - `isFraud` is kept so the backend can record the ground-truth label on
+  //   the persisted Transaction row (enables Fraud Rate KPI to work).
   const skip = new Set<string>([
-    "isFraud", "TransactionID", "external_id",
+    "TransactionID", "external_id",
   ]);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
