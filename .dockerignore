@@ -1,0 +1,70 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# Environments
+.env
+.env.local
+.env.*.local
+frontend/.env.local
+
+# Databases (dev SQLite)
+data/api.db
+data/*.db-journal
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Docs & artifacts we don't need in the image
+docs/
+notebooks/
+*.ipynb
+outputs/
+reports/
+*.md
+!README.md
+
+# Large training-only artifacts not needed for serving
+data/raw/
+data/interim/
+data/processed/ieee_cis/train_features.parquet
+data/processed/ieee_cis/train.parquet
+data/processed/ieee_cis/val.parquet
+data/processed/ieee_cis/val_features.parquet
+data/processed/sparkov/
+models/stage2_graphsage.pt
+models/stage2_graphsage_embeddings/
+models/fusion_head.pt
+
+# CI / tests are not needed at runtime
+tests/
+.github/

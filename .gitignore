@@ -1,0 +1,77 @@
+# Data — NEVER commit real transaction data
+data/raw/*
+data/processed/*
+data/external/*
+data/api.db
+data/*.db
+data/*.db-journal
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/external/.gitkeep
+
+# Whitelist ONLY the artifacts needed for serving (HF Space image)
+!data/processed/ieee_cis/
+data/processed/ieee_cis/*
+!data/processed/ieee_cis/feature_pipeline.pkl
+!data/processed/ieee_cis/samples.parquet
+
+# Model artifacts — block all files inside models/, whitelist serving ones.
+# Note: use "models/*" NOT "models/" — git cannot re-include from an excluded dir.
+models/*
+*.pkl
+*.joblib
+*.ckpt
+*.pt
+*.onnx
+!models/stage1_lightgbm.pkl
+!models/stage3_isotonic.pkl
+
+# Dev-only reports (large images, arrays)
+reports/
+
+# Notebooks — commit clean, not outputs
+.ipynb_checkpoints/
+# Uncomment next line if you want to strip outputs before commit:
+# *.ipynb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Node / Next.js (frontend build artifacts)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Secrets
+.env
+.env.local
+frontend/.env.local
+config/secrets.yaml
+
+# Docker
+docker-compose.override.yml

@@ -1,0 +1,63 @@
+# CHIMERA-FD configuration
+# Edit these paths if your data lives elsewhere. Paths are relative to project root
+# UNLESS they start with an absolute drive letter.
+
+data:
+  # Primary dataset (IEEE-CIS from Kaggle competition)
+  ieee_cis:
+    train_transaction: "../ieee-fraud-detection/train_transaction.csv"
+    train_identity:    "../ieee-fraud-detection/train_identity.csv"
+    test_transaction:  "../ieee-fraud-detection/test_transaction.csv"
+    test_identity:     "../ieee-fraud-detection/test_identity.csv"
+
+  # Secondary dataset (Sparkov for cross-dataset validation)
+  sparkov:
+    train: "../archive (2)/fraudTrain.csv"
+    test:  "../archive (2)/fraudTest.csv"
+
+  # Where we save processed files
+  processed_dir: "data/processed"
+
+split:
+  # Time-based split. NEVER use random on time-series fraud data.
+  # We split by TransactionDT quantile.
+  train_frac: 0.80
+  val_frac:   0.10
+  test_frac:  0.10
+
+  # Optional: further reduce train set for fast local iteration
+  # Set to null to use full data.
+  train_downsample_frac: null   # e.g. 0.20 for a quick smoke test
+
+features:
+  # Placeholder — filled in Week 2
+  velocity_windows_hours: [1, 24, 168]
+
+model:
+  stage1:
+    name: "lightgbm"
+    scale_pos_weight: "auto"   # auto = n_neg / n_pos on train
+    early_stopping_rounds: 100
+    num_boost_round: 2000
+    params:
+      objective: "binary"
+      metric: "average_precision"   # PR-AUC — not accuracy, ever.
+      learning_rate: 0.05
+      num_leaves: 127
+      max_depth: -1
+      min_data_in_leaf: 100
+      feature_fraction: 0.8
+      bagging_fraction: 0.8
+      bagging_freq: 5
+      lambda_l1: 0.1
+      lambda_l2: 0.1
+      verbose: -1
+
+evaluation:
+  # Decision threshold band — controls escalation to Stage 2
+  # Configured for the FINAL cascade; Stage-1 baseline reports at threshold=0.5
+  cascade:
+    approve_below: 0.05
+    block_above:   0.95
+
+random_seed: 42
