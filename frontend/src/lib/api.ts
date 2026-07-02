@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Empty string means "same origin as the frontend" (production same-container deploy).
+// Only fall back to localhost when the env var is truly unset (dev without .env.local).
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type ApiOptions = {
   method?: string;
