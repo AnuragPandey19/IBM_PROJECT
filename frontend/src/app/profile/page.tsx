@@ -128,6 +128,8 @@ export default function ProfilePage() {
   }
 
   async function saveCompany() {
+    const currentUser = user;
+    if (!currentUser) return;
     setCompanyError(null);
     setCompanySaving(true);
     try {
@@ -143,8 +145,8 @@ export default function ProfilePage() {
           },
         }
       );
-      if (user.company) {
-        const nu: User = { ...user, company: { ...user.company, ...updated } };
+      if (currentUser.company) {
+        const nu: User = { ...currentUser, company: { ...currentUser.company, ...updated } };
         saveUser(nu);
         setUser(nu);
       }
