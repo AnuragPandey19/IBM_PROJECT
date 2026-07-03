@@ -20,23 +20,24 @@ from api.db.session import get_db
 root_router = APIRouter(tags=["monitor"])
 
 
-@root_router.get(
+@root_router.api_route(
     "/ping",
+    methods=["GET", "HEAD"],
     response_class=PlainTextResponse,
-    summary="Uptime monitor endpoint (plain text, no dependencies)",
+    summary="Uptime monitor endpoint (plain text, accepts GET and HEAD)",
 )
 def ping():
     """Ultra-lightweight liveness endpoint for external uptime monitors
     such as Uptime Robot, Better Stack, Pingdom, and StatusCake.
 
-    Returns the plain text string "OK" with HTTP 200 and headers that
-    disable caching. No authentication, no database queries, no model
-    checks — this is a pure "is the ASGI server responsive?" probe.
+    Accepts both GET and HEAD methods — most monitors use HEAD by default
+    to save bandwidth (no response body needed). Returns HTTP 200 with the
+    plain text "OK" and cache-disabling headers.
 
     Guarantees:
-      - Response body: 2 bytes ("OK")
+      - Response body: 2 bytes ("OK") for GET, empty for HEAD
       - Latency: sub-millisecond
-      - No CORS, auth, cookies, or query dependencies
+      - No auth, DB, or model dependencies
       - Deterministic response on every call
     """
     return PlainTextResponse(
@@ -57,9 +58,12 @@ def ping():
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("")
+@router.api_route("", methods=["GET", "HEAD"])
 def health_check(cfg: Settings = Depends(get_settings)):
-    """Basic liveness — 'is the app alive?'  Always fast, no DB check."""
+    """Basic liveness — 'is the app alive?'  Always fast, no DB check.
+
+    Accepts GET and HEAD (monitors often use HEAD).
+    """
     return {
         "status": "ok",
         "app": cfg.app_name,
@@ -69,7 +73,7 @@ def health_check(cfg: Settings = Depends(get_settings)):
     }
 
 
-@router.get("/ready")
+@router.api_route("/ready", methods=["GET", "HEAD"])
 def readiness_check(
     db: Session = Depends(get_db),
     cfg: Settings = Depends(get_settings),
@@ -77,14 +81,12 @@ def readiness_check(
     """Readiness — 'is the app ready to serve traffic?'  Checks DB + model files."""
     checks = {}
 
-    # DB check
     try:
         db.execute(text("SELECT 1"))
         checks["database"] = "ok"
     except Exception as e:
         checks["database"] = f"fail: {type(e).__name__}"
 
-    # Model files
     checks["stage1_model"] = "ok" if cfg.stage1_model_path.exists() else "missing"
     checks["stage3_calibrator"] = "ok" if cfg.stage3_calibrator_path.exists() else "missing"
     checks["feature_pipeline"] = "ok" if cfg.feature_pipeline_path.exists() else "missing"
