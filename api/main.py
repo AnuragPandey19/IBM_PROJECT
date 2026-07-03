@@ -37,7 +37,6 @@ log = logging.getLogger("api")
 settings = get_settings()
 
 # Where the Next.js static export lives when running inside Docker.
-# In dev this directory won't exist; API-only mode still works.
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend_dist"
 FRONTEND_ENABLED = FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists()
 
@@ -109,7 +108,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ---- API routers (mounted BEFORE the SPA catch-all) ----
-app.include_router(health.router)
+app.include_router(health.root_router)   # /ping (for external uptime monitors)
+app.include_router(health.router)         # /health, /health/ready
 app.include_router(auth.router)
 app.include_router(predict.router)
 app.include_router(transactions.router)
@@ -118,12 +118,10 @@ app.include_router(metrics.router)
 
 # ---- Frontend static serving (single-container HF Space) ----
 if FRONTEND_ENABLED:
-    # Mount Next.js emitted assets under /_next/*
     _next_dir = FRONTEND_DIST / "_next"
     if _next_dir.exists():
         app.mount("/_next", StaticFiles(directory=str(_next_dir)), name="next_static")
 
-    # Serve other top-level static files (favicon, images) from public
     _public_files = ["favicon.ico", "next.svg", "vercel.svg", "file.svg", "globe.svg", "window.svg"]
     for f in _public_files:
         p = FRONTEND_DIST / f
@@ -132,7 +130,7 @@ if FRONTEND_ENABLED:
             async def _serve_public(request: Request, _path: Path = p):
                 return FileResponse(str(_path))
 
-    _API_PREFIXES = ("/api", "/auth", "/health", "/docs", "/redoc", "/openapi.json")
+    _API_PREFIXES = ("/api", "/auth", "/health", "/ping", "/docs", "/redoc", "/openapi.json")
 
     @app.get("/", include_in_schema=False)
     async def _root():
@@ -140,27 +138,21 @@ if FRONTEND_ENABLED:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def _spa_catchall(full_path: str):
-        # Never intercept API paths
         if any(full_path.startswith(p.lstrip("/")) for p in _API_PREFIXES):
             raise HTTPException(404, "Not found")
 
-        # Try direct file match (e.g. /login/index.html)
         candidate = FRONTEND_DIST / full_path
         if candidate.is_file():
             return FileResponse(str(candidate))
 
-        # Try with trailing index.html (for /login/, /dashboard/)
         candidate_index = FRONTEND_DIST / full_path / "index.html"
         if candidate_index.is_file():
             return FileResponse(str(candidate_index))
 
-        # Also handle no trailing slash (Next.js emits /login.html when trailingSlash=false,
-        # or /login/index.html when true — we set true, but keep this defensive.)
         candidate_html = FRONTEND_DIST / f"{full_path}.html"
         if candidate_html.is_file():
             return FileResponse(str(candidate_html))
 
-        # SPA fallback — deliver the app shell for client-side routing
         return FileResponse(str(FRONTEND_DIST / "index.html"))
 
 else:
@@ -172,5 +164,6 @@ else:
             "env": settings.env,
             "docs": "/docs" if settings.env != "prod" else None,
             "health": "/health",
+            "ping": "/ping",
             "frontend": "not bundled — API only",
         }

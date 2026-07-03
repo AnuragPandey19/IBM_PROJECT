@@ -5,12 +5,55 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from api.config import Settings, get_settings
 from api.db.session import get_db
 
+
+# ==========================================================================
+# Root-level router for endpoints outside the /health prefix.
+# External uptime monitors expect a stable, short path (e.g. /ping).
+# ==========================================================================
+root_router = APIRouter(tags=["monitor"])
+
+
+@root_router.get(
+    "/ping",
+    response_class=PlainTextResponse,
+    summary="Uptime monitor endpoint (plain text, no dependencies)",
+)
+def ping():
+    """Ultra-lightweight liveness endpoint for external uptime monitors
+    such as Uptime Robot, Better Stack, Pingdom, and StatusCake.
+
+    Returns the plain text string "OK" with HTTP 200 and headers that
+    disable caching. No authentication, no database queries, no model
+    checks — this is a pure "is the ASGI server responsive?" probe.
+
+    Guarantees:
+      - Response body: 2 bytes ("OK")
+      - Latency: sub-millisecond
+      - No CORS, auth, cookies, or query dependencies
+      - Deterministic response on every call
+    """
+    return PlainTextResponse(
+        content="OK",
+        status_code=200,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Robots-Tag": "noindex",
+        },
+    )
+
+
+# ==========================================================================
+# /health prefix router — richer health information for internal callers.
+# ==========================================================================
 router = APIRouter(prefix="/health", tags=["health"])
 
 

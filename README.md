@@ -18,6 +18,10 @@ Team: Anurag Pandey, Pankaj Singh, Gurnoor Multani, Sanvi Bharadwaj
 
 ---
 
+## 🌐 Live demo
+
+**https://undebuggedbit-chimera-fd.hf.space** — click, sign in, score a transaction.
+
 ## 🚀 Deploy on Hugging Face Spaces
 
 This repo doubles as a HF Docker Space. Push to a Space repo and it auto-builds

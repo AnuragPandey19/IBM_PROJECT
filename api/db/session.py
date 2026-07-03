@@ -17,13 +17,30 @@ log = logging.getLogger(__name__)
 
 settings = get_settings()
 
+# Defensive: HF Space secrets sometimes come through as empty string when unset.
+# Fall back to SQLite in that case so the container at least starts.
+_db_url = (settings.database_url or "").strip()
+if not _db_url or "://" not in _db_url:
+    log.warning(
+        "DATABASE_URL is empty or malformed (%r) — falling back to SQLite. "
+        "Set DATABASE_URL as a Space secret to use PostgreSQL.",
+        settings.database_url,
+    )
+    _db_url = "sqlite:////tmp/chimera_fallback.db"
+
+# Normalise the Render / Heroku convention of "postgres://" → "postgresql://"
+if _db_url.startswith("postgres://"):
+    _db_url = "postgresql://" + _db_url[len("postgres://"):]
+
+log.info("Using database: %s", _db_url.split("@")[-1])
+
 # SQLite needs check_same_thread=False for FastAPI's threaded workers
 connect_args = {}
-if settings.database_url.startswith("sqlite"):
+if _db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
 
 engine = create_engine(
-    settings.database_url,
+    _db_url,
     echo=settings.debug and settings.env == "dev",
     pool_pre_ping=True,
     connect_args=connect_args,
@@ -51,6 +68,6 @@ def init_db() -> None:
     from api.db.base import Base
     # Import models so their tables register with Base.metadata
     from api.db import models  # noqa: F401
-    log.info("Creating tables in %s", settings.database_url.split("@")[-1])
+    log.info("Creating tables in %s", _db_url.split("@")[-1])
     Base.metadata.create_all(bind=engine)
     log.info("Tables ready.")
