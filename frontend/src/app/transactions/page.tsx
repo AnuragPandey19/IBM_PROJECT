@@ -6,8 +6,8 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { logout } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
+import { Tooltip, FloatingTooltip, FloatingHoverState } from "@/components/Tooltip";
 
-// -------- Types matching backend /api/transactions --------
 type TxnSummary = {
   id: number;
   external_id: string | null;
@@ -30,37 +30,29 @@ type PaginatedTxns = {
   items: TxnSummary[];
 };
 
-// -------- Filter state --------
 type Filters = {
   min_amount: string;
   max_amount: string;
   decision: string;
   min_score: string;
   max_score: string;
-  is_fraud: string; // "", "true", "false"
+  is_fraud: string;
   product_cd: string;
 };
 
 const emptyFilters: Filters = {
-  min_amount: "",
-  max_amount: "",
-  decision: "",
-  min_score: "",
-  max_score: "",
-  is_fraud: "",
-  product_cd: "",
+  min_amount: "", max_amount: "", decision: "", min_score: "", max_score: "", is_fraud: "", product_cd: "",
 };
 
-// -------- Helpers --------
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-const fmtScore = (n: number | null) => (n === null ? "-" : n.toFixed(4));
+const fmtScore = (n: number | null) => (n === null ? "—" : n.toFixed(3));
 
-function decisionColor(d: string | null): string {
-  if (d === "block") return "text-red-400 bg-red-500/10 border-red-500/30";
-  if (d === "review") return "text-amber-400 bg-amber-500/10 border-amber-500/30";
-  if (d === "approve") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-  return "text-slate-500 bg-slate-800 border-slate-700";
+function decisionStyle(d: string | null) {
+  if (d === "block") return { bg: "rgba(239,68,68,0.12)", text: "#f87171", border: "rgba(239,68,68,0.3)" };
+  if (d === "review") return { bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)" };
+  if (d === "approve") return { bg: "rgba(16,185,129,0.12)", text: "#34d399", border: "rgba(16,185,129,0.3)" };
+  return { bg: "var(--bg-glass)", text: "var(--text-muted)", border: "var(--border-subtle)" };
 }
 
 function buildQuery(page: number, pageSize: number, f: Filters): string {
@@ -77,7 +69,6 @@ function buildQuery(page: number, pageSize: number, f: Filters): string {
   return params.toString();
 }
 
-// -------- Page --------
 export default function TransactionsPage() {
   const router = useRouter();
   const [data, setData] = useState<PaginatedTxns | null>(null);
@@ -87,6 +78,7 @@ export default function TransactionsPage() {
   const [pageSize] = useState(25);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters);
+  const [showFilters, setShowFilters] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,82 +99,93 @@ export default function TransactionsPage() {
     }
   }, [page, pageSize, appliedFilters, router]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  function applyFilters() {
-    setPage(1);
-    setAppliedFilters(filters);
-  }
-
-  function clearFilters() {
-    setFilters(emptyFilters);
-    setAppliedFilters(emptyFilters);
-    setPage(1);
-  }
+  const applyFilters = () => { setPage(1); setAppliedFilters(filters); };
+  const clearFilters = () => { setFilters(emptyFilters); setAppliedFilters(emptyFilters); setPage(1); };
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
-  const activeFilterCount = Object.values(appliedFilters).filter(v => v !== "").length;
+  const activeCount = Object.values(appliedFilters).filter(v => v !== "").length;
 
   return (
     <AppShell
       title="Transactions"
-      subtitle={data ? `${data.total.toLocaleString()} total, showing ${data.items.length} on page ${page}` : "Loading…"}
+      subtitle={data ? `${data.total.toLocaleString()} transactions in your workspace` : "Loading…"}
       actions={
-        <button
-          onClick={load}
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm border border-slate-700"
-        >
-          Refresh
-        </button>
+        <>
+          <Tooltip content={showFilters ? "Hide filters" : "Show filters"} side="bottom">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-3 h-9 rounded-lg text-sm font-medium flex items-center gap-2 transition glass glass-hover"
+              style={{ color: activeCount > 0 ? "var(--accent-primary)" : "var(--text-secondary)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              <span className="hidden sm:inline">Filters</span>
+              {activeCount > 0 && (
+                <span className="text-[10px] font-bold px-1.5 rounded-full" style={{ background: "var(--accent-primary)", color: "white" }}>
+                  {activeCount}
+                </span>
+              )}
+            </button>
+          </Tooltip>
+          <Tooltip content="Refresh" side="bottom">
+            <button
+              onClick={load}
+              className="w-9 h-9 rounded-lg flex items-center justify-center transition glass glass-hover"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
+          </Tooltip>
+        </>
       }
     >
-      {/* Filter bar */}
-      <FilterBar
-        filters={filters}
-        setFilters={setFilters}
-        onApply={applyFilters}
-        onClear={clearFilters}
-        activeCount={activeFilterCount}
-      />
+      <div>
+        {showFilters && (
+          <FilterBar
+            filters={filters}
+            setFilters={setFilters}
+            onApply={applyFilters}
+            onClear={clearFilters}
+            activeCount={activeCount}
+          />
+        )}
 
-      {/* Error */}
-      {error && (
-        <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300">
-          <div className="font-semibold">Failed to load transactions</div>
-          <div className="text-sm mt-1">{error}</div>
+        {error && (
+          <div className="mt-4 p-4 rounded-xl" style={{ borderColor: "rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.06)", border: "1px solid" }}>
+            <div className="font-semibold" style={{ color: "#f87171" }}>Failed to load transactions</div>
+            <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{error}</div>
+          </div>
+        )}
+
+        <div className={`${showFilters ? "mt-4" : ""} rounded-xl glass overflow-hidden`}>
+          {loading && !data ? (
+            <div className="p-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>Loading…</div>
+          ) : (
+            <TxnTable rows={data?.items ?? []} />
+          )}
         </div>
-      )}
 
-      {/* Table */}
-      <div className="mt-4 bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden">
-        {loading && !data ? (
-          <div className="p-8 text-center text-slate-500 text-sm">Loading&hellip;</div>
-        ) : (
-          <TxnTable rows={data?.items ?? []} />
+        {data && data.total > 0 && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={data.total}
+            pageSize={pageSize}
+            onPage={setPage}
+          />
         )}
       </div>
-
-      {/* Pagination */}
-      {data && data.total > 0 && (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          total={data.total}
-          pageSize={pageSize}
-          onPage={setPage}
-        />
-      )}
     </AppShell>
   );
 }
 
-// -------- Sub-components --------
-
-function FilterBar({
-  filters, setFilters, onApply, onClear, activeCount,
-}: {
+function FilterBar({ filters, setFilters, onApply, onClear, activeCount }: {
   filters: Filters;
   setFilters: (f: Filters) => void;
   onApply: () => void;
@@ -190,52 +193,59 @@ function FilterBar({
   activeCount: number;
 }) {
   const set = (k: keyof Filters, v: string) => setFilters({ ...filters, [k]: v });
+  const inputCls = "w-full h-8 rounded-lg px-3 text-xs focus:outline-none transition";
+  const inputStyle = { background: "var(--bg-glass)", color: "var(--text-primary)", border: "1px solid var(--border-default)" };
 
   return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+    <div className="rounded-xl glass p-4 animate-fade-in">
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        <NumberInput label="Min Amount" value={filters.min_amount} onChange={(v) => set("min_amount", v)} placeholder="$0" />
-        <NumberInput label="Max Amount" value={filters.max_amount} onChange={(v) => set("max_amount", v)} placeholder="$" />
-        <SelectInput
-          label="Decision"
-          value={filters.decision}
-          onChange={(v) => set("decision", v)}
-          options={[
-            { value: "", label: "Any" },
-            { value: "approve", label: "Approve" },
-            { value: "review", label: "Review" },
-            { value: "block", label: "Block" },
-          ]}
-        />
-        <NumberInput label="Min Score" value={filters.min_score} onChange={(v) => set("min_score", v)} placeholder="0.00" step="0.01" />
-        <NumberInput label="Max Score" value={filters.max_score} onChange={(v) => set("max_score", v)} placeholder="1.00" step="0.01" />
-        <SelectInput
-          label="Label"
-          value={filters.is_fraud}
-          onChange={(v) => set("is_fraud", v)}
-          options={[
-            { value: "", label: "Any" },
-            { value: "true", label: "Fraud" },
-            { value: "false", label: "Legit" },
-          ]}
-        />
-        <TextInput label="Product" value={filters.product_cd} onChange={(v) => set("product_cd", v)} placeholder="W / H / C…" />
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Min $</span>
+          <input type="number" value={filters.min_amount} onChange={e => set("min_amount", e.target.value)} className={inputCls} style={inputStyle} placeholder="0" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Max $</span>
+          <input type="number" value={filters.max_amount} onChange={e => set("max_amount", e.target.value)} className={inputCls} style={inputStyle} placeholder="∞" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Decision</span>
+          <select value={filters.decision} onChange={e => set("decision", e.target.value)} className={inputCls} style={inputStyle}>
+            <option value="">Any</option>
+            <option value="approve">Approve</option>
+            <option value="review">Review</option>
+            <option value="block">Block</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Min score</span>
+          <input type="number" step="0.01" value={filters.min_score} onChange={e => set("min_score", e.target.value)} className={inputCls} style={inputStyle} placeholder="0.00" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Max score</span>
+          <input type="number" step="0.01" value={filters.max_score} onChange={e => set("max_score", e.target.value)} className={inputCls} style={inputStyle} placeholder="1.00" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Label</span>
+          <select value={filters.is_fraud} onChange={e => set("is_fraud", e.target.value)} className={inputCls} style={inputStyle}>
+            <option value="">Any</option>
+            <option value="true">Fraud</option>
+            <option value="false">Legit</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Product</span>
+          <input type="text" value={filters.product_cd} onChange={e => set("product_cd", e.target.value)} className={inputCls} style={inputStyle} placeholder="W" />
+        </label>
       </div>
-      <div className="flex items-center justify-between mt-4">
-        <div className="text-xs text-slate-500">
+      <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div className="text-xs" style={{ color: "var(--text-faded)" }}>
           {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} active` : "No filters applied"}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={onClear}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm border border-slate-700"
-          >
+          <button onClick={onClear} className="px-3 h-8 rounded-lg text-xs font-medium glass glass-hover transition" style={{ color: "var(--text-muted)" }}>
             Clear
           </button>
-          <button
-            onClick={onApply}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-sm"
-          >
+          <button onClick={onApply} className="px-4 h-8 rounded-lg text-xs font-semibold accent-gradient text-white transition hover:scale-105">
             Apply
           </button>
         </div>
@@ -244,161 +254,143 @@ function FilterBar({
   );
 }
 
-function NumberInput({
-  label, value, onChange, placeholder, step,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  step?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] uppercase tracking-wider text-slate-400">{label}</span>
-      <input
-        type="number"
-        step={step}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500"
-      />
-    </label>
-  );
-}
-
-function TextInput({
-  label, value, onChange, placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] uppercase tracking-wider text-slate-400">{label}</span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500"
-      />
-    </label>
-  );
-}
-
-function SelectInput({
-  label, value, onChange, options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="block">
-      <span className="text-[11px] uppercase tracking-wider text-slate-400">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-red-500"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function TxnTable({ rows }: { rows: TxnSummary[] }) {
+  const [hover, setHover] = useState<(FloatingHoverState & { row: TxnSummary }) | null>(null);
+
   if (rows.length === 0) {
-    return <div className="p-8 text-center text-slate-500 text-sm">No transactions match the filters.</div>;
+    return <div className="p-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>No transactions match the filters.</div>;
   }
   return (
-    <table className="w-full text-sm">
-      <thead className="bg-slate-900/80 text-slate-400 uppercase text-[11px] tracking-wider">
-        <tr>
-          <th className="text-left px-4 py-3">ID</th>
-          <th className="text-left px-4 py-3">External</th>
-          <th className="text-right px-4 py-3">Amount</th>
-          <th className="text-right px-4 py-3">Score</th>
-          <th className="text-left px-4 py-3">Decision</th>
-          <th className="text-left px-4 py-3">Product</th>
-          <th className="text-left px-4 py-3">Device</th>
-          <th className="text-left px-4 py-3">Label</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-800">
-        {rows.map((r) => (
-          <tr
-            key={r.id}
-            className="hover:bg-slate-800/40 cursor-pointer transition group"
-            onClick={() => { window.location.href = `/transaction?id=${r.id}`; }}
-          >
-            <td className="px-4 py-3 font-mono text-slate-300">
-              <Link href={`/transaction?id=${r.id}`} className="text-red-400 group-hover:underline" onClick={(e) => e.stopPropagation()}>
-                #{r.id}
-              </Link>
-            </td>
-            <td className="px-4 py-3 font-mono text-xs text-slate-400">{r.external_id ?? "-"}</td>
-            <td className="px-4 py-3 text-right">{fmtMoney(r.amount)}</td>
-            <td className="px-4 py-3 text-right font-mono">{fmtScore(r.latest_score)}</td>
-            <td className="px-4 py-3">
-              <span className={`inline-block px-2 py-0.5 rounded-md border text-xs font-semibold uppercase tracking-wider ${decisionColor(r.latest_decision)}`}>
-                {r.latest_decision ?? "none"}
-              </span>
-            </td>
-            <td className="px-4 py-3 text-slate-400">{r.product_cd ?? "-"}</td>
-            <td className="px-4 py-3 text-slate-400">{r.device_type ?? "-"}</td>
-            <td className="px-4 py-3">
-              {r.is_fraud === true && <span className="text-red-400 text-xs font-semibold">FRAUD</span>}
-              {r.is_fraud === false && <span className="text-slate-500 text-xs">legit</span>}
-              {r.is_fraud === null && <span className="text-slate-600 text-xs">-</span>}
-            </td>
+    <>
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "22%" }} />
+          <col style={{ width: "12%" }} />
+          <col style={{ width: "10%" }} />
+          <col style={{ width: "13%" }} />
+          <col style={{ width: "10%" }} />
+          <col style={{ width: "13%" }} />
+          <col style={{ width: "13%" }} />
+        </colgroup>
+        <thead>
+          <tr style={{ background: "var(--bg-glass)", borderBottom: "1px solid var(--border-subtle)" }}>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>ID</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>External</th>
+            <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Amount</th>
+            <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Score</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Decision</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Product</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Device</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Label</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const dc = decisionStyle(r.latest_decision);
+            return (
+              <tr
+                key={r.id}
+                className="cursor-pointer transition"
+                style={{ borderTop: "1px solid var(--border-subtle)" }}
+                onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY, row: r })}
+                onMouseMove={(e) => setHover((h) => (h ? { ...h, x: e.clientX, y: e.clientY } : null))}
+                onMouseLeave={() => setHover(null)}
+                onClick={() => (window.location.href = `/transaction?id=${r.id}`)}
+                onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-glass)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <td className="px-4 py-3 font-mono text-xs">
+                  <Link
+                    href={`/transaction?id=${r.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hover:underline"
+                    style={{ color: "var(--accent-primary)" }}
+                  >
+                    #{r.id}
+                  </Link>
+                </td>
+                <td className="px-4 py-3 font-mono text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{r.external_id ?? "—"}</td>
+                <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ color: "var(--text-primary)" }}>{fmtMoney(r.amount)}</td>
+                <td className="px-4 py-3 text-right font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>{fmtScore(r.latest_score)}</td>
+                <td className="px-4 py-3">
+                  <span
+                    className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider"
+                    style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.text }}
+                  >
+                    {r.latest_decision ?? "none"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>{r.product_cd ?? "—"}</td>
+                <td className="px-4 py-3 text-xs truncate" style={{ color: "var(--text-muted)" }}>{r.device_type ?? "—"}</td>
+                <td className="px-4 py-3 text-xs">
+                  {r.is_fraud === true && <span style={{ color: "#f87171", fontWeight: 600 }}>FRAUD</span>}
+                  {r.is_fraud === false && <span style={{ color: "var(--text-muted)" }}>legit</span>}
+                  {r.is_fraud === null && <span style={{ color: "var(--text-faded)" }}>—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <FloatingTooltip hover={hover}>
+        {hover && (
+          <div className="min-w-[240px]">
+            <div className="font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Transaction #{hover.row.id}</div>
+            <div className="text-xs space-y-1" style={{ color: "var(--text-muted)" }}>
+              <div className="flex justify-between gap-4"><span>Amount</span><span style={{ color: "var(--text-primary)" }}>{fmtMoney(hover.row.amount)}</span></div>
+              <div className="flex justify-between gap-4"><span>Score</span><span style={{ color: "var(--text-primary)" }}>{fmtScore(hover.row.latest_score)}</span></div>
+              <div className="flex justify-between gap-4"><span>Decision</span><span style={{ color: decisionStyle(hover.row.latest_decision).text }}>{(hover.row.latest_decision ?? "—").toUpperCase()}</span></div>
+              <div className="flex justify-between gap-4"><span>Product</span><span style={{ color: "var(--text-primary)" }}>{hover.row.product_cd ?? "—"}</span></div>
+              <div className="flex justify-between gap-4"><span>Device</span><span style={{ color: "var(--text-primary)" }}>{hover.row.device_type ?? "—"}</span></div>
+              <div className="flex justify-between gap-4"><span>Email</span><span style={{ color: "var(--text-primary)" }}>{hover.row.p_emaildomain ?? "—"}</span></div>
+              <div className="flex justify-between gap-4">
+                <span>Label</span>
+                <span style={{ color: hover.row.is_fraud === true ? "#f87171" : hover.row.is_fraud === false ? "#34d399" : "var(--text-faded)" }}>
+                  {hover.row.is_fraud === true ? "FRAUD" : hover.row.is_fraud === false ? "Legit" : "Unknown"}
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-2 border-t text-[10px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-faded)" }}>
+              Click for full detail + SHAP →
+            </div>
+          </div>
+        )}
+      </FloatingTooltip>
+    </>
   );
 }
 
-function Pagination({
-  page, totalPages, total, pageSize, onPage,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  pageSize: number;
-  onPage: (p: number) => void;
+function Pagination({ page, totalPages, total, pageSize, onPage }: {
+  page: number; totalPages: number; total: number; pageSize: number; onPage: (p: number) => void;
 }) {
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
   return (
-    <div className="flex items-center justify-between mt-4">
-      <div className="text-sm text-slate-500">
-        Showing <span className="text-slate-300">{from.toLocaleString()}</span>&ndash;
-        <span className="text-slate-300">{to.toLocaleString()}</span> of{" "}
-        <span className="text-slate-300">{total.toLocaleString()}</span>
+    <div className="flex items-center justify-between mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+      <div>
+        Showing <span style={{ color: "var(--text-primary)" }}>{from.toLocaleString()}</span>–
+        <span style={{ color: "var(--text-primary)" }}>{to.toLocaleString()}</span> of{" "}
+        <span style={{ color: "var(--text-primary)" }}>{total.toLocaleString()}</span>
       </div>
       <div className="flex items-center gap-2">
         <button
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm border border-slate-700"
+          className="px-3 h-8 rounded-lg glass glass-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ color: "var(--text-secondary)" }}
         >
           Prev
         </button>
-        <div className="text-sm text-slate-400 px-3">
-          Page <span className="text-slate-100 font-semibold">{page}</span> / {totalPages}
+        <div className="px-2">
+          Page <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{page}</span> / {totalPages}
         </div>
         <button
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm border border-slate-700"
+          className="px-3 h-8 rounded-lg glass glass-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ color: "var(--text-secondary)" }}
         >
           Next
         </button>

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import { logout } from "@/lib/auth";
+import { getUser, logout } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
+import { Tooltip, FloatingTooltip, FloatingHoverState } from "@/components/Tooltip";
 
-// -------- Types matching backend /api/metrics/summary --------
 type DecisionCounts = { approve: number; review: number; block: number };
 type AmountStats = { total: number; avg: number; max: number };
 type RiskyTxn = {
@@ -32,25 +33,24 @@ type MetricsSummary = {
   model_version: string | null;
 };
 
-// -------- Helpers --------
 const fmtNum = (n: number) => new Intl.NumberFormat("en-IN").format(n);
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits)}%`;
-const fmtScore = (n: number | null) => (n === null ? "-" : n.toFixed(4));
+const fmtPct = (n: number, d = 1) => `${(n * 100).toFixed(d)}%`;
+const fmtScore = (n: number | null) => (n === null ? "—" : n.toFixed(3));
 
-function decisionColor(d: string): string {
-  if (d === "block") return "text-red-400 bg-red-500/10 border-red-500/30";
-  if (d === "review") return "text-amber-400 bg-amber-500/10 border-amber-500/30";
-  return "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+function decisionStyle(d: string) {
+  if (d === "block") return { bg: "rgba(239,68,68,0.12)", text: "#f87171", border: "rgba(239,68,68,0.3)" };
+  if (d === "review") return { bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)" };
+  return { bg: "rgba(16,185,129,0.12)", text: "#34d399", border: "rgba(16,185,129,0.3)" };
 }
 
-// -------- Page --------
 export default function DashboardPage() {
   const router = useRouter();
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const user = getUser();
 
   useEffect(() => {
     loadMetrics();
@@ -78,27 +78,38 @@ export default function DashboardPage() {
   return (
     <AppShell
       title="Analyst Dashboard"
-      subtitle="Live KPIs from production database"
+      subtitle={user?.company?.name ? `Fraud operations overview for ${user.company.name}` : undefined}
       actions={
-        <button
-          onClick={loadMetrics}
-          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm border border-slate-700"
-        >
-          Refresh
-        </button>
+        <Tooltip content="Refresh metrics" side="bottom">
+          <button
+            onClick={loadMetrics}
+            className="px-3 h-9 rounded-lg text-sm font-medium flex items-center gap-2 transition glass glass-hover"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+        </Tooltip>
       }
     >
-      {loading && (
-        <div className="text-slate-400 text-sm">Loading metrics&hellip;</div>
+      {loading && !metrics && (
+        <div className="flex items-center justify-center py-16 text-sm" style={{ color: "var(--text-muted)" }}>
+          <div className="w-2 h-2 rounded-full animate-pulse-glow mr-3" style={{ background: "var(--accent-primary)" }} />
+          Loading metrics&hellip;
+        </div>
       )}
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300">
-          <div className="font-semibold">Failed to load metrics</div>
-          <div className="text-sm mt-1">{error}</div>
+        <div className="mb-6 p-5 rounded-2xl" style={{ borderColor: "rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.06)", border: "1px solid" }}>
+          <div className="font-semibold" style={{ color: "#f87171" }}>Failed to load metrics</div>
+          <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{error}</div>
           <button
             onClick={loadMetrics}
-            className="mt-3 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-sm border border-red-500/40"
+            className="mt-3 px-4 py-2 rounded-lg text-sm border transition"
+            style={{ borderColor: "rgba(239,68,68,0.4)", color: "#f87171", background: "rgba(239,68,68,0.1)" }}
           >
             Retry
           </button>
@@ -106,85 +117,73 @@ export default function DashboardPage() {
       )}
 
       {metrics && !error && (
-        <>
-          {/* KPI cards row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <KpiCard
-              label="Total Transactions"
-              value={fmtNum(metrics.total_transactions)}
-              sub={`${fmtNum(metrics.total_predictions)} predictions`}
-              accent="slate"
-            />
-            <KpiCard
-              label="Fraud Rate (labelled)"
-              value={fmtPct(metrics.fraud_rate)}
-              sub={`${fmtNum(metrics.fraud_count)} confirmed fraud`}
-              accent="red"
-            />
-            <KpiCard
-              label="Avg Calibrated Risk"
-              value={fmtScore(metrics.avg_calibrated_score)}
-              sub={metrics.model_version || "no predictions yet"}
-              accent="amber"
-            />
-            <KpiCard
-              label="Total Amount"
-              value={fmtMoney(metrics.amount_stats.total)}
-              sub={`avg ${fmtMoney(metrics.amount_stats.avg)} / max ${fmtMoney(metrics.amount_stats.max)}`}
-              accent="emerald"
-            />
+        <div className="space-y-6 stagger">
+          {/* KPI grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard label="Transactions" value={fmtNum(metrics.total_transactions)} delta={`${fmtNum(metrics.total_predictions)} scored`} />
+            <KpiCard label="Fraud rate" value={fmtPct(metrics.fraud_rate)} delta={`${fmtNum(metrics.fraud_count)} confirmed`} accent />
+            <KpiCard label="Avg risk" value={fmtScore(metrics.avg_calibrated_score)} delta="Calibrated" />
+            <KpiCard label="Volume" value={fmtMoney(metrics.amount_stats.total)} delta={`Avg ${fmtMoney(metrics.amount_stats.avg)}`} />
           </div>
 
           {/* Decision breakdown */}
-          <div className="mb-8">
-            <h2 className="text-lg font-semibold mb-3">Decision Breakdown</h2>
+          <section>
+            <SectionHeader title="Decision breakdown" subtitle="Model routing across the review queue" />
             <DecisionBar counts={metrics.decision_counts} />
-          </div>
+          </section>
 
-          {/* Top risky transactions */}
-          <div>
-            <h2 className="text-lg font-semibold mb-3">
-              Top 10 High-Risk Transactions
-            </h2>
+          {/* Top risky */}
+          <section>
+            <SectionHeader
+              title="Top high-risk transactions"
+              subtitle="Sorted by calibrated risk score"
+              action={
+                <Link href="/transactions" className="text-xs font-medium flex items-center gap-1 transition hover:gap-2" style={{ color: "var(--accent-primary)" }}>
+                  View all
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+              }
+            />
             <RiskyTable rows={metrics.top_risky} />
-          </div>
-        </>
+          </section>
+        </div>
       )}
     </AppShell>
   );
 }
 
-// -------- Sub-components --------
-
-function KpiCard({
-  label, value, sub, accent,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent: "slate" | "red" | "amber" | "emerald";
-}) {
-  const border = {
-    slate: "border-slate-700",
-    red: "border-red-500/40",
-    amber: "border-amber-500/40",
-    emerald: "border-emerald-500/40",
-  }[accent];
-  const dot = {
-    slate: "bg-slate-500",
-    red: "bg-red-500",
-    amber: "bg-amber-500",
-    emerald: "bg-emerald-500",
-  }[accent];
-
+function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div className={`bg-slate-900/60 border ${border} rounded-2xl p-5`}>
-      <div className="flex items-center gap-2 text-xs text-slate-400 uppercase tracking-wider">
-        <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+    <div className="flex items-end justify-between mb-3 gap-3 flex-wrap">
+      <div>
+        <h2 className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>{title}</h2>
+        {subtitle && <div className="text-xs mt-0.5" style={{ color: "var(--text-faded)" }}>{subtitle}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, delta, accent }: { label: string; value: string; delta?: string; accent?: boolean }) {
+  return (
+    <div
+      className="rounded-xl p-4 transition glass glass-hover"
+      style={
+        accent
+          ? { borderColor: "rgba(244,63,94,0.2)", background: "linear-gradient(135deg, rgba(244,63,94,0.05) 0%, var(--bg-glass) 100%)" }
+          : undefined
+      }
+    >
+      <div className="text-[10px] uppercase tracking-widest font-semibold mb-2" style={{ color: "var(--text-faded)" }}>
         {label}
       </div>
-      <div className="text-3xl font-bold mt-2">{value}</div>
-      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+      <div className="text-2xl font-bold tabular-nums leading-tight" style={{ color: accent ? "var(--accent-primary)" : "var(--text-primary)", fontFamily: "var(--font-serif)" }}>
+        {value}
+      </div>
+      {delta && <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{delta}</div>}
     </div>
   );
 }
@@ -193,90 +192,156 @@ function DecisionBar({ counts }: { counts: DecisionCounts }) {
   const total = counts.approve + counts.review + counts.block;
   if (total === 0) {
     return (
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-slate-500 text-sm">
-        No predictions yet.
+      <div className="rounded-xl p-8 text-center glass text-sm" style={{ color: "var(--text-muted)" }}>
+        No predictions yet.{" "}
+        <Link href="/predict" style={{ color: "var(--accent-primary)" }} className="hover:underline">Score your first transaction</Link>.
       </div>
     );
   }
   const pct = (n: number) => (n / total) * 100;
+
   return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
-      <div className="flex h-3 rounded-full overflow-hidden bg-slate-800">
-        <div className="bg-emerald-500" style={{ width: `${pct(counts.approve)}%` }} />
-        <div className="bg-amber-500" style={{ width: `${pct(counts.review)}%` }} />
-        <div className="bg-red-500" style={{ width: `${pct(counts.block)}%` }} />
+    <div className="rounded-xl glass p-5">
+      <div className="flex items-baseline justify-between mb-3">
+        <span className="text-[11px] uppercase tracking-widest" style={{ color: "var(--text-faded)" }}>Distribution</span>
+        <span className="text-sm font-mono tabular-nums" style={{ color: "var(--text-muted)" }}>{fmtNum(total)} total</span>
       </div>
-      <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
-        <LegendItem color="bg-emerald-500" label="Approve" count={counts.approve} total={total} />
-        <LegendItem color="bg-amber-500" label="Review" count={counts.review} total={total} />
-        <LegendItem color="bg-red-500" label="Block" count={counts.block} total={total} />
+      <div className="flex h-2 rounded-full overflow-hidden mb-4" style={{ background: "var(--border-subtle)" }}>
+        <div style={{ width: `${pct(counts.approve)}%`, background: "linear-gradient(90deg, #10b981, #34d399)" }} />
+        <div style={{ width: `${pct(counts.review)}%`, background: "linear-gradient(90deg, #f59e0b, #fbbf24)" }} />
+        <div style={{ width: `${pct(counts.block)}%`, background: "linear-gradient(90deg, #ef4444, #f87171)" }} />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Legend color="#10b981" label="Approve" count={counts.approve} pct={pct(counts.approve)} />
+        <Legend color="#f59e0b" label="Review" count={counts.review} pct={pct(counts.review)} />
+        <Legend color="#ef4444" label="Block" count={counts.block} pct={pct(counts.block)} />
       </div>
     </div>
   );
 }
 
-function LegendItem({
-  color, label, count, total,
-}: { color: string; label: string; count: number; total: number }) {
-  const pct = total === 0 ? 0 : (count / total) * 100;
+function Legend({ color, label, count, pct }: { color: string; label: string; count: number; pct: number }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 text-slate-300">
-        <span className={`w-2.5 h-2.5 rounded-sm ${color}`} />
-        <span className="font-medium">{label}</span>
+    <div className="p-2.5 rounded-lg glass glass-hover transition w-full">
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="w-2 h-2 rounded-sm" style={{ background: color }} />
+        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{label}</span>
       </div>
-      <div className="text-xl font-bold mt-1">{fmtNum(count)}</div>
-      <div className="text-xs text-slate-500">{pct.toFixed(1)}% of predictions</div>
+      <div className="text-lg font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{fmtNum(count)}</div>
+      <div className="text-[10px]" style={{ color: "var(--text-faded)" }}>{pct.toFixed(1)}% of queue</div>
     </div>
   );
 }
 
+/**
+ * Risky transactions table with a portal-based floating tooltip.
+ * The tooltip content is rendered to document.body via FloatingTooltip,
+ * so no <tr> ends up nested inside a <div> — no hydration error.
+ */
 function RiskyTable({ rows }: { rows: RiskyTxn[] }) {
+  const [hover, setHover] = useState<(FloatingHoverState & { row: RiskyTxn }) | null>(null);
+
   if (rows.length === 0) {
     return (
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 text-slate-500 text-sm">
-        No predictions in the database yet. Run the seed script or use /api/predict.
+      <div className="rounded-xl glass p-10 text-center">
+        <div className="text-sm mb-1" style={{ color: "var(--text-secondary)" }}>No predictions yet</div>
+        <div className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>Score your first transaction to see it here.</div>
+        <Link href="/predict" className="inline-block px-4 py-2 rounded-lg text-sm font-semibold accent-gradient text-white transition hover:scale-[1.02]">
+          Go to Live Predict
+        </Link>
       </div>
     );
   }
+
   return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-900/80 text-slate-400 uppercase text-[11px] tracking-wider">
-          <tr>
-            <th className="text-left px-4 py-3">ID</th>
-            <th className="text-left px-4 py-3">External</th>
-            <th className="text-right px-4 py-3">Amount</th>
-            <th className="text-right px-4 py-3">Calibrated</th>
-            <th className="text-right px-4 py-3">Raw</th>
-            <th className="text-left px-4 py-3">Decision</th>
-            <th className="text-left px-4 py-3">Product</th>
-            <th className="text-left px-4 py-3">Label</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800">
-          {rows.map((r) => (
-            <tr key={r.id} className="hover:bg-slate-800/40 transition">
-              <td className="px-4 py-3 font-mono text-slate-300">#{r.id}</td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-400">{r.external_id ?? "-"}</td>
-              <td className="px-4 py-3 text-right">{fmtMoney(r.amount)}</td>
-              <td className="px-4 py-3 text-right font-mono">{fmtScore(r.calibrated_score)}</td>
-              <td className="px-4 py-3 text-right font-mono text-slate-400">{r.raw_score.toFixed(4)}</td>
-              <td className="px-4 py-3">
-                <span className={`inline-block px-2 py-0.5 rounded-md border text-xs font-semibold uppercase tracking-wider ${decisionColor(r.decision)}`}>
-                  {r.decision}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-slate-400">{r.product_cd ?? "-"}</td>
-              <td className="px-4 py-3">
-                {r.is_fraud === true && <span className="text-red-400 text-xs font-semibold">FRAUD</span>}
-                {r.is_fraud === false && <span className="text-slate-500 text-xs">legit</span>}
-                {r.is_fraud === null && <span className="text-slate-600 text-xs">-</span>}
-              </td>
+    <>
+      <div className="rounded-xl glass overflow-hidden">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "12%" }} />
+          </colgroup>
+          <thead>
+            <tr style={{ background: "var(--bg-glass)", borderBottom: "1px solid var(--border-subtle)" }}>
+              <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>ID</th>
+              <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>External</th>
+              <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Amount</th>
+              <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Cal.</th>
+              <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Raw</th>
+              <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Decision</th>
+              <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Label</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const dc = decisionStyle(r.decision);
+              return (
+                <tr
+                  key={r.id}
+                  className="cursor-pointer transition"
+                  style={{ borderTop: "1px solid var(--border-subtle)" }}
+                  onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY, row: r })}
+                  onMouseMove={(e) => setHover((h) => (h ? { ...h, x: e.clientX, y: e.clientY } : null))}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={() => (window.location.href = `/transaction?id=${r.id}`)}
+                  onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-glass)")}
+                  onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <td className="px-4 py-3 font-mono text-xs" style={{ color: "var(--accent-primary)" }}>#{r.id}</td>
+                  <td className="px-4 py-3 font-mono text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{r.external_id ?? "—"}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ color: "var(--text-primary)" }}>{fmtMoney(r.amount)}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>{fmtScore(r.calibrated_score)}</td>
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-xs" style={{ color: "var(--text-muted)" }}>{r.raw_score.toFixed(3)}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider"
+                      style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.text }}
+                    >
+                      {r.decision}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.is_fraud === true && <span style={{ color: "#f87171", fontWeight: 600 }}>FRAUD</span>}
+                    {r.is_fraud === false && <span style={{ color: "var(--text-muted)" }}>legit</span>}
+                    {r.is_fraud === null && <span style={{ color: "var(--text-faded)" }}>—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <FloatingTooltip hover={hover}>
+        {hover && (
+          <div className="min-w-[220px]">
+            <div className="font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+              Transaction #{hover.row.id}
+            </div>
+            <div className="text-xs space-y-1" style={{ color: "var(--text-muted)" }}>
+              <div className="flex justify-between gap-4"><span>Amount</span><span style={{ color: "var(--text-primary)" }}>{fmtMoney(hover.row.amount)}</span></div>
+              <div className="flex justify-between gap-4"><span>Calibrated</span><span style={{ color: "var(--text-primary)" }}>{fmtScore(hover.row.calibrated_score)}</span></div>
+              <div className="flex justify-between gap-4"><span>Raw score</span><span style={{ color: "var(--text-primary)" }}>{hover.row.raw_score.toFixed(4)}</span></div>
+              <div className="flex justify-between gap-4"><span>Decision</span><span style={{ color: decisionStyle(hover.row.decision).text }}>{hover.row.decision.toUpperCase()}</span></div>
+              <div className="flex justify-between gap-4"><span>Product</span><span style={{ color: "var(--text-primary)" }}>{hover.row.product_cd ?? "—"}</span></div>
+              <div className="flex justify-between gap-4">
+                <span>Label</span>
+                <span style={{ color: hover.row.is_fraud === true ? "#f87171" : hover.row.is_fraud === false ? "#34d399" : "var(--text-faded)" }}>
+                  {hover.row.is_fraud === true ? "FRAUD" : hover.row.is_fraud === false ? "Legit" : "Unknown"}
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-2 border-t text-[10px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-faded)" }}>
+              Click for full detail + SHAP →
+            </div>
+          </div>
+        )}
+      </FloatingTooltip>
+    </>
   );
 }

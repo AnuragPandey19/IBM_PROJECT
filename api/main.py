@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.db.session import init_db
-from api.routes import auth, health, metrics, predict, transactions
+from api.routes import analytics, auth, health, metrics, notifications, predict, profile, transactions
 from api.services.model_service import get_model_service
 
 logging.basicConfig(
@@ -114,6 +114,9 @@ app.include_router(auth.router)
 app.include_router(predict.router)
 app.include_router(transactions.router)
 app.include_router(metrics.router)
+app.include_router(profile.router)
+app.include_router(notifications.router)
+app.include_router(analytics.router)
 
 
 # ---- Frontend static serving (single-container HF Space) ----
