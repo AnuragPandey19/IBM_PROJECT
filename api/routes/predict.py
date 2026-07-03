@@ -1,4 +1,4 @@
-"""POST /api/predict — score a single transaction."""
+"""POST /api/predict — score a single transaction (company-scoped)."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
-from api.dependencies.auth import get_current_user
+from api.dependencies.auth import require_company
 from api.schemas.predict import PredictionResponse, ShapContribution, TransactionInput
 from api.services.feature_service import get_feature_service
 from api.services.model_service import get_model_service
@@ -24,10 +24,7 @@ router = APIRouter(prefix="/api", tags=["predict"])
 
 _ENGINEERED_OVERLAP_THRESHOLD = 100
 
-# Cached dtypes from parquet — populated at first sample load
-# Maps column name -> pandas dtype (may be CategoricalDtype for categorical cols)
 _PARQUET_DTYPES: dict[str, Any] = {}
-
 _SAMPLE_POOL: dict[str, list[dict[str, Any]]] = {"fraud": [], "legit": []}
 
 
@@ -51,8 +48,6 @@ def _load_sample_pool() -> None:
     import pandas as pd
 
     root = Path(__file__).resolve().parents[2]
-    # Prefer the small pre-sampled file (~3 MB, git-friendly for HF Spaces).
-    # Fall back to the full test_features.parquet when running locally.
     candidates = [
         root / "data" / "processed" / "ieee_cis" / "samples.parquet",
         root / "data" / "processed" / "ieee_cis" / "test_features.parquet",
@@ -69,7 +64,6 @@ def _load_sample_pool() -> None:
     if "isFraud" not in df.columns:
         raise ValueError("Sample parquet missing isFraud column")
 
-    # Cache dtypes for each column — these are the exact dtypes the model expects
     _PARQUET_DTYPES.clear()
     for col in df.columns:
         _PARQUET_DTYPES[col] = df[col].dtype
@@ -90,8 +84,12 @@ def _load_sample_pool() -> None:
 
 
 @router.get("/predict/samples")
-def get_samples(current_user: User = Depends(get_current_user)):
-    """Return one random fraud sample and one legit sample."""
+def get_samples(current_user: User = Depends(require_company)):
+    """Return one random fraud sample and one legit sample.
+
+    Samples are shared demo data available to any authenticated user; the
+    scoring itself will still be company-scoped when saved.
+    """
     try:
         _load_sample_pool()
     except FileNotFoundError as e:
@@ -114,12 +112,6 @@ def get_samples(current_user: User = Depends(get_current_user)):
 
 
 def _build_direct_features(raw_dict: dict, feature_columns: list[str]):
-    """Build a scoring-ready DataFrame that matches the parquet dtype layout.
-
-    Uses cached parquet dtypes so categorical columns are declared correctly
-    for LightGBM. As a defensive fallback for the string-object case, we
-    explicitly cast object columns to category dtype which LightGBM accepts.
-    """
     import pandas as pd
     import numpy as np
 
@@ -135,7 +127,6 @@ def _build_direct_features(raw_dict: dict, feature_columns: list[str]):
 
     df = pd.DataFrame([row], columns=feature_columns)
 
-    # Apply cached parquet dtypes column-by-column
     for col in feature_columns:
         dt = _PARQUET_DTYPES.get(col)
         if dt is None:
@@ -145,8 +136,6 @@ def _build_direct_features(raw_dict: dict, feature_columns: list[str]):
         except (ValueError, TypeError) as e:
             log.debug("Could not cast %s to %s: %s", col, dt, e)
 
-    # Defensive: any object-dtype column must be converted to category so
-    # LightGBM can accept it (LightGBM rejects raw object/string columns).
     for col in df.columns:
         if df[col].dtype == "object":
             df[col] = df[col].astype("category")
@@ -158,9 +147,12 @@ def _build_direct_features(raw_dict: dict, feature_columns: list[str]):
 def predict(
     payload: TransactionInput,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company),
 ):
-    """Score a single transaction end-to-end."""
+    """Score a single transaction end-to-end. The new Transaction and
+    Prediction rows are tagged with the caller's company_id so that
+    multi-tenant queries can filter them correctly.
+    """
     ms = get_model_service()
     fs = get_feature_service()
 
@@ -172,9 +164,6 @@ def predict(
 
     raw_dict = payload.as_raw_dict()
 
-    # Extract ground-truth label if caller supplied one in extras
-    # (e.g. when scoring a labelled sample from the parquet). Real-world API
-    # callers won't send this — it stays None for unknown.
     is_fraud_val = raw_dict.get("isFraud")
     if is_fraud_val is not None:
         try:
@@ -196,6 +185,7 @@ def predict(
         device_info=payload.DeviceInfo,
         raw_features=raw_dict,
         is_fraud=is_fraud_val,
+        company_id=current_user.company_id,  # Multi-tenancy tag
     )
     db.add(txn)
     db.flush()
@@ -230,6 +220,7 @@ def predict(
         model_version=ms.model_version,
         shap_top=shap_top,
         latency_ms=latency_ms,
+        company_id=current_user.company_id,  # Denormalized for faster company-scoped queries
     )
     db.add(pred)
     db.commit()

@@ -1,4 +1,4 @@
-"""GET /api/transactions endpoints — list + detail with filters."""
+"""GET /api/transactions endpoints — list + detail with filters. Company-scoped."""
 from __future__ import annotations
 
 import logging
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
-from api.dependencies.auth import get_current_user
+from api.dependencies.auth import require_company
 from api.schemas.transactions import (
     PaginatedTransactions,
     PredictionSummary,
@@ -35,14 +35,11 @@ def list_transactions(
     is_fraud: Optional[bool] = None,
     product_cd: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company),
 ):
-    """Paginated + filterable list of transactions.
-
-    Filters combine with AND. Sort is newest-first by created_at.
-    Includes latest prediction score/decision when available.
-    """
-    q = select(Transaction)
+    """Paginated + filterable list of transactions scoped to the caller's company."""
+    # Multi-tenancy: only return transactions from the caller's company
+    q = select(Transaction).where(Transaction.company_id == current_user.company_id)
 
     if min_amount is not None:
         q = q.where(Transaction.amount >= min_amount)
@@ -53,7 +50,6 @@ def list_transactions(
     if product_cd is not None:
         q = q.where(Transaction.product_cd == product_cd)
 
-    # Filter on latest prediction (if score/decision filters given)
     if decision or (min_score is not None) or (max_score is not None):
         q = q.join(Prediction, Transaction.id == Prediction.transaction_id)
         if decision:
@@ -110,12 +106,13 @@ def list_transactions(
 def get_transaction(
     txn_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company),
 ):
-    """Full detail — includes ALL predictions ever made for this transaction."""
+    """Full detail — only accessible if the transaction belongs to the caller's company."""
     txn = db.execute(
         select(Transaction)
         .where(Transaction.id == txn_id)
+        .where(Transaction.company_id == current_user.company_id)  # Enforce isolation
         .options(selectinload(Transaction.predictions))
     ).scalar_one_or_none()
 

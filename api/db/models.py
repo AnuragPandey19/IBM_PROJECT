@@ -1,10 +1,11 @@
 """SQLAlchemy ORM models.
 
-Four tables:
-  - User      : analysts + admins who log in
-  - Transaction: incoming payment records
-  - Prediction: model outputs per transaction (score, decision, SHAP)
-  - Feedback  : analyst decisions on flagged transactions (for retraining)
+Five tables:
+  - Company    : tenant organization; owns users, transactions, and predictions
+  - User       : analysts + admins scoped to a company
+  - Transaction: incoming payment records scoped to a company
+  - Prediction : model outputs scoped to a company
+  - Feedback   : analyst decisions on flagged transactions (for retraining)
 """
 from __future__ import annotations
 
@@ -17,6 +18,22 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from api.db.base import Base, TimestampMixin
 
 
+class Company(Base, TimestampMixin):
+    """Multi-tenant boundary. All data is company-scoped."""
+    __tablename__ = "companies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    industry: Mapped[Optional[str]] = mapped_column(String(64))
+    size: Mapped[Optional[str]] = mapped_column(String(32))
+    use_case: Mapped[Optional[str]] = mapped_column(String(1024))
+    logo_url: Mapped[Optional[str]] = mapped_column(String(500))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    users: Mapped[list["User"]] = relationship(back_populates="company")
+    transactions: Mapped[list["Transaction"]] = relationship(back_populates="company")
+
+
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
@@ -27,6 +44,11 @@ class User(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(32), default="analyst", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=True,
+    )
+    company: Mapped[Optional["Company"]] = relationship(back_populates="users")
+
     feedback_entries: Mapped[list["Feedback"]] = relationship(back_populates="analyst")
 
 
@@ -35,7 +57,7 @@ class Transaction(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True)
-    transaction_dt: Mapped[Optional[int]] = mapped_column(Integer, index=True)  # seconds
+    transaction_dt: Mapped[Optional[int]] = mapped_column(Integer, index=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     card1: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     card4: Mapped[Optional[str]] = mapped_column(String(64))
@@ -46,14 +68,18 @@ class Transaction(Base, TimestampMixin):
     device_type: Mapped[Optional[str]] = mapped_column(String(64))
     device_info: Mapped[Optional[str]] = mapped_column(String(255))
 
-    # Raw payload as JSON for full context (all 434 columns)
     raw_features: Mapped[Optional[dict]] = mapped_column(JSON)
-
-    # Actual label if we know it (from historical data)
     is_fraud: Mapped[Optional[bool]] = mapped_column(Boolean)
 
-    predictions: Mapped[list["Prediction"]] = relationship(back_populates="transaction",
-                                                            cascade="all, delete-orphan")
+    # Multi-tenancy: this transaction belongs to a specific company
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=True,
+    )
+    company: Mapped[Optional["Company"]] = relationship(back_populates="transactions")
+
+    predictions: Mapped[list["Prediction"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
 
 
 class Prediction(Base, TimestampMixin):
@@ -65,26 +91,22 @@ class Prediction(Base, TimestampMixin):
         index=True, nullable=False,
     )
 
-    # Raw model score (uncalibrated)
     raw_score: Mapped[float] = mapped_column(Float, nullable=False)
-    # Calibrated probability (via isotonic regression)
     calibrated_score: Mapped[Optional[float]] = mapped_column(Float)
-
-    # Decision: approve | review | block
     decision: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
-
-    # Which model version produced this
     model_version: Mapped[str] = mapped_column(String(64), default="stage1_lightgbm_v1")
-
-    # SHAP top-N features and contributions
     shap_top: Mapped[Optional[list]] = mapped_column(JSON)
-
-    # Latency of scoring (milliseconds) for monitoring
     latency_ms: Mapped[Optional[float]] = mapped_column(Float)
 
+    # Multi-tenancy: denormalized from transaction for faster company-scoped queries
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=True,
+    )
+
     transaction: Mapped["Transaction"] = relationship(back_populates="predictions")
-    feedback: Mapped[Optional["Feedback"]] = relationship(back_populates="prediction",
-                                                          uselist=False)
+    feedback: Mapped[Optional["Feedback"]] = relationship(
+        back_populates="prediction", uselist=False
+    )
 
 
 class Feedback(Base, TimestampMixin):
@@ -100,7 +122,6 @@ class Feedback(Base, TimestampMixin):
         index=True, nullable=False,
     )
 
-    # confirmed_fraud | false_positive | uncertain
     verdict: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     notes: Mapped[Optional[str]] = mapped_column(String(1024))
 

@@ -1,41 +1,55 @@
-"""Auth-related request and response schemas."""
+"""Auth request/response schemas with multi-tenant Company support."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from pydantic import BaseModel, EmailStr, Field
+
+class CompanyInfo(BaseModel):
+    """Company details returned alongside the user profile."""
+    id: int
+    name: str
+    industry: Optional[str] = None
+    size: Optional[str] = None
+    use_case: Optional[str] = None
+    logo_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserCreate(BaseModel):
-    """Payload for POST /auth/register."""
+    """Register a new user. If company_name is provided, a new company is
+    created and this user becomes its admin. If no company info is provided,
+    registration is rejected (multi-tenant model requires company context).
+    """
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: Optional[str] = Field(default=None, max_length=255)
-    role: str = Field(default="analyst", pattern="^(analyst|admin|reviewer)$")
+
+    # Company details — required on first admin signup for a new company
+    company_name: str = Field(min_length=2, max_length=255)
+    industry: Optional[str] = Field(default=None, max_length=64)
+    size: Optional[str] = Field(default=None, max_length=32)
+    use_case: Optional[str] = Field(default=None, max_length=1024)
 
 
 class UserLogin(BaseModel):
-    """Payload for POST /auth/login."""
     email: EmailStr
     password: str
 
 
 class UserResponse(BaseModel):
-    """Safe public view of a user (no password)."""
     id: int
     email: str
     full_name: Optional[str] = None
     role: str
     is_active: bool
-    created_at: datetime
+    company: Optional[CompanyInfo] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
-    """Response for POST /auth/login."""
     access_token: str
     token_type: str = "bearer"
     expires_in_minutes: int

@@ -1,9 +1,19 @@
+export type Company = {
+  id: number;
+  name: string;
+  industry: string | null;
+  size: string | null;
+  use_case: string | null;
+  logo_url: string | null;
+};
+
 export type User = {
   id: number;
   email: string;
   full_name: string | null;
   role: string;
   is_active: boolean;
+  company: Company | null;
 };
 
 export function saveToken(token: string) {

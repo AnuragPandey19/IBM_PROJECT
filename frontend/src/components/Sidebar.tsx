@@ -57,12 +57,25 @@ export function Sidebar() {
 
   return (
     <aside className="w-60 bg-slate-950 border-r border-slate-800 flex flex-col shrink-0">
-      {/* Brand */}
+      {/* Brand + Company */}
       <div className="px-5 py-5 border-b border-slate-800">
         <div className="text-[10px] tracking-[0.2em] text-red-500 font-bold">
           CHIMERA-FD
         </div>
-        <div className="text-sm text-slate-400 mt-0.5">Fraud Detection</div>
+        {user?.company ? (
+          <>
+            <div className="text-base font-semibold text-white mt-1 truncate" title={user.company.name}>
+              {user.company.name}
+            </div>
+            {user.company.industry && (
+              <div className="text-[11px] text-slate-500 truncate" title={user.company.industry}>
+                {user.company.industry}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-sm text-slate-400 mt-0.5">Fraud Detection</div>
+        )}
       </div>
 
       {/* Nav */}

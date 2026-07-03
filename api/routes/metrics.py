@@ -1,4 +1,4 @@
-"""GET /api/metrics/summary — KPI aggregates for the dashboard."""
+"""GET /api/metrics/summary — KPI aggregates for the dashboard (company-scoped)."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
-from api.dependencies.auth import get_current_user
+from api.dependencies.auth import require_company
 from api.schemas.metrics import (
     AmountStats,
     DecisionCounts,
@@ -25,29 +25,46 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 @router.get("/summary", response_model=MetricsSummary)
 def get_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company),
 ):
-    """Aggregate KPIs for the analyst dashboard.
+    """Aggregate KPIs for the analyst dashboard, scoped to caller's company."""
+    company_id = current_user.company_id
 
-    All counts computed via SQL aggregates (fast even with 100k+ rows).
-    """
-    # ----- Transactions -----
-    total_txns = db.execute(select(func.count(Transaction.id))).scalar_one() or 0
+    # ----- Transactions (company-filtered) -----
+    total_txns = db.execute(
+        select(func.count(Transaction.id)).where(Transaction.company_id == company_id)
+    ).scalar_one() or 0
+
     fraud_count = db.execute(
-        select(func.count(Transaction.id)).where(Transaction.is_fraud.is_(True))
+        select(func.count(Transaction.id))
+        .where(Transaction.company_id == company_id)
+        .where(Transaction.is_fraud.is_(True))
     ).scalar_one() or 0
 
     fraud_rate = (fraud_count / total_txns) if total_txns else 0.0
 
-    amount_total = db.execute(select(func.coalesce(func.sum(Transaction.amount), 0.0))).scalar_one() or 0.0
-    amount_avg = db.execute(select(func.coalesce(func.avg(Transaction.amount), 0.0))).scalar_one() or 0.0
-    amount_max = db.execute(select(func.coalesce(func.max(Transaction.amount), 0.0))).scalar_one() or 0.0
+    amount_total = db.execute(
+        select(func.coalesce(func.sum(Transaction.amount), 0.0))
+        .where(Transaction.company_id == company_id)
+    ).scalar_one() or 0.0
+    amount_avg = db.execute(
+        select(func.coalesce(func.avg(Transaction.amount), 0.0))
+        .where(Transaction.company_id == company_id)
+    ).scalar_one() or 0.0
+    amount_max = db.execute(
+        select(func.coalesce(func.max(Transaction.amount), 0.0))
+        .where(Transaction.company_id == company_id)
+    ).scalar_one() or 0.0
 
-    # ----- Predictions -----
-    total_preds = db.execute(select(func.count(Prediction.id))).scalar_one() or 0
+    # ----- Predictions (company-filtered) -----
+    total_preds = db.execute(
+        select(func.count(Prediction.id)).where(Prediction.company_id == company_id)
+    ).scalar_one() or 0
 
     decision_rows = db.execute(
-        select(Prediction.decision, func.count(Prediction.id)).group_by(Prediction.decision)
+        select(Prediction.decision, func.count(Prediction.id))
+        .where(Prediction.company_id == company_id)
+        .group_by(Prediction.decision)
     ).all()
     decision_counts = DecisionCounts()
     for decision, count in decision_rows:
@@ -60,17 +77,21 @@ def get_summary(
 
     avg_score = db.execute(
         select(func.avg(func.coalesce(Prediction.calibrated_score, Prediction.raw_score)))
+        .where(Prediction.company_id == company_id)
     ).scalar_one()
 
     latest_version = db.execute(
-        select(Prediction.model_version).order_by(desc(Prediction.created_at)).limit(1)
+        select(Prediction.model_version)
+        .where(Prediction.company_id == company_id)
+        .order_by(desc(Prediction.created_at))
+        .limit(1)
     ).scalar_one_or_none()
 
-    # ----- Top-10 risky transactions (highest calibrated score) -----
-    # Latest prediction per transaction, sorted desc
+    # ----- Top-10 risky transactions (company-filtered) -----
     risky_q = (
         select(Prediction, Transaction)
         .join(Transaction, Transaction.id == Prediction.transaction_id)
+        .where(Transaction.company_id == company_id)
         .order_by(desc(func.coalesce(Prediction.calibrated_score, Prediction.raw_score)))
         .limit(10)
     )
