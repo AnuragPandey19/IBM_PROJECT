@@ -45,7 +45,7 @@ echo.
 
 REM ---- Push ----
 echo [3/3] Pushing to remote...
-git push
+git push hf main
 if errorlevel 1 (
     echo.
     echo [WARNING] Push failed. Common causes:
