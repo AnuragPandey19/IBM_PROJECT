@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     stage3_calibrator_path: Path = PROJECT_ROOT / "models" / "stage3_isotonic.pkl"
     feature_pipeline_path: Path = PROJECT_ROOT / "data" / "processed" / "ieee_cis" / "feature_pipeline.pkl"
 
+    # Sparkov mode (human-interpretable fraud detection)
+    stage1_sparkov_path: Path = PROJECT_ROOT / "models" / "stage1_sparkov.pkl"
+    sparkov_features_path: Path = PROJECT_ROOT / "data" / "processed" / "sparkov" / "test_features.parquet"
+
     # ---- Decision thresholds (cascade routing) ----
     approve_below: float = 0.05      # P < 0.05 -> auto-approve
     block_above: float = 0.95        # P > 0.95 -> auto-block

@@ -24,8 +24,9 @@ from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.db.session import init_db
-from api.routes import analytics, auth, health, metrics, notifications, predict, profile, transactions
+from api.routes import analytics, auth, checkout, health, metrics, notifications, predict, predict_sparkov, profile, transactions
 from api.services.model_service import get_model_service
+from api.services.sparkov_lookups import get_sparkov_lookups
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,10 +64,24 @@ async def lifespan(app: FastAPI):
         ms.warmup()
         log.info("Model service ready: %s, %d features",
                  ms.model_version, len(ms.feature_columns))
+        if ms.sparkov_model is not None:
+            log.info("Sparkov model ready: %s, %d features",
+                     ms.sparkov_model_version, len(ms.sparkov_feature_columns))
     except FileNotFoundError as e:
         log.warning("Model artifacts not found — API will start but /predict will fail: %s", e)
     except Exception as e:
         log.exception("Model load failed: %s", e)
+
+    # Sparkov lookups (best-effort — Sparkov endpoints will 503 if this fails)
+    try:
+        lk = get_sparkov_lookups()
+        lk.load()
+        log.info("Sparkov lookups ready: %d merchants, %d cities",
+                 len(lk.merchant_te), len(lk.city_te))
+    except FileNotFoundError as e:
+        log.warning("Sparkov lookups not loaded — Sparkov endpoints will 503: %s", e)
+    except Exception as e:
+        log.exception("Sparkov lookup load failed: %s", e)
 
     log.info("Startup complete. API ready at :%d", settings.port)
 
@@ -112,6 +127,8 @@ app.include_router(health.root_router)   # /ping (for external uptime monitors)
 app.include_router(health.router)         # /health, /health/ready
 app.include_router(auth.router)
 app.include_router(predict.router)
+app.include_router(predict_sparkov.router)
+app.include_router(checkout.router)
 app.include_router(transactions.router)
 app.include_router(metrics.router)
 app.include_router(profile.router)

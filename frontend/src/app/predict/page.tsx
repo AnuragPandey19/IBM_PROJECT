@@ -7,6 +7,9 @@ import { api, ApiError } from "@/lib/api";
 import { logout } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { ShapWaterfall, ShapContribution } from "@/components/ShapWaterfall";
+import { SparkovPredictMode } from "@/components/SparkovPredictMode";
+
+type PredictMode = "ieee-cis" | "sparkov";
 
 // -------- Types --------
 type PredictionResponse = {
@@ -115,6 +118,7 @@ function decisionColor(d: string): string {
 // -------- Page --------
 export default function PredictPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<PredictMode>("sparkov");
   const [form, setForm] = useState<FormState>(EMPTY);
   const [extras, setExtras] = useState<Record<string, unknown> | null>(null);
   const [sampleLabel, setSampleLabel] = useState<string | null>(null);
@@ -122,6 +126,20 @@ export default function PredictPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [samplesLoading, setSamplesLoading] = useState(false);
+
+  // Reset IEEE-CIS state when switching away — prevents extras from leaking
+  function switchMode(next: PredictMode) {
+    if (next === mode) return;
+    setMode(next);
+    if (next === "sparkov") {
+      // Clear IEEE-CIS state so it's fresh if user comes back
+      setForm(EMPTY);
+      setExtras(null);
+      setSampleLabel(null);
+      setResult(null);
+      setError(null);
+    }
+  }
 
   function setField(k: keyof FormState, v: string) {
     setForm({ ...form, [k]: v });
@@ -210,8 +228,48 @@ export default function PredictPage() {
   return (
     <AppShell
       title="Live Predict"
-      subtitle="Score a single transaction against the deployed Stage-1 model"
+      subtitle={
+        mode === "sparkov"
+          ? "Human-interpretable fraud detection · Sparkov 1.48M-row dataset · ROC-AUC 0.97"
+          : "Score a transaction against the deployed IEEE-CIS Stage-1 model · anonymized features"
+      }
     >
+      {/* Mode toggle */}
+      <div className="mb-5 flex items-center gap-2 flex-wrap">
+        <div className="inline-flex rounded-xl border border-slate-800 bg-slate-900/60 p-1">
+          <button
+            type="button"
+            onClick={() => switchMode("sparkov")}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
+              mode === "sparkov"
+                ? "bg-gradient-to-br from-red-500 to-red-700 text-white shadow-lg shadow-red-500/20"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Sparkov · human-readable
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode("ieee-cis")}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
+              mode === "ieee-cis"
+                ? "bg-gradient-to-br from-red-500 to-red-700 text-white shadow-lg shadow-red-500/20"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            IEEE-CIS · anonymized
+          </button>
+        </div>
+        <div className="text-[10px] text-slate-500 ml-2 hidden md:block">
+          {mode === "sparkov"
+            ? "Real merchants, cities, amounts. Every input is human-verifiable."
+            : "Vesta Corporation benchmark. Features are hashed / obfuscated for privacy."}
+        </div>
+      </div>
+
+      {mode === "sparkov" ? (
+        <SparkovPredictMode />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LEFT: Form */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
@@ -421,6 +479,7 @@ export default function PredictPage() {
           )}
         </div>
       </div>
+      )}
     </AppShell>
   );
 }

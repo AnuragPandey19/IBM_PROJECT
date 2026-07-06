@@ -30,15 +30,30 @@ settings = get_settings()
 
 
 class ModelService:
-    """Singleton model service. Access via get_model_service()."""
+    """Singleton model service. Access via get_model_service().
+
+    Loads TWO models:
+      - IEEE-CIS Stage 1 LightGBM + Stage 3 isotonic calibrator (primary)
+      - Sparkov Stage 1 LightGBM (interpretable-features demo model)
+
+    Both are LightGBM under the hood but were trained on completely different
+    feature spaces. Public API disambiguates via the `dataset` argument.
+    """
 
     _instance: Optional["ModelService"] = None
 
     def __init__(self):
+        # IEEE-CIS
         self.stage1: Optional[Stage1LightGBM] = None
         self.calibrator: Optional[IsotonicCalibrator] = None
         self.feature_columns: list[str] = []
         self.model_version: str = "unknown"
+
+        # Sparkov
+        self.sparkov_model: Optional[Stage1LightGBM] = None
+        self.sparkov_feature_columns: list[str] = []
+        self.sparkov_model_version: str = "unknown"
+
         self.loaded: bool = False
 
     def load(self) -> "ModelService":
@@ -46,18 +61,18 @@ class ModelService:
         if self.loaded:
             return self
 
-        # Stage 1 LightGBM
+        # ---- IEEE-CIS Stage 1 LightGBM ----
         s1_path = settings.stage1_model_path
         if not s1_path.exists():
             raise FileNotFoundError(f"Stage 1 model not found: {s1_path}")
-        log.info("Loading Stage 1 model from %s", s1_path)
+        log.info("Loading IEEE-CIS Stage 1 from %s", s1_path)
         self.stage1 = Stage1LightGBM.load(s1_path)
         self.feature_columns = self.stage1.feature_names
         self.model_version = f"stage1_lightgbm@{s1_path.stat().st_mtime_ns}"
-        log.info("Stage 1 loaded: %d features, best_iteration=%d",
+        log.info("IEEE-CIS Stage 1 loaded: %d features, best_iteration=%d",
                  len(self.feature_columns), self.stage1.model.best_iteration)
 
-        # Stage 3 Calibrator (optional but expected)
+        # ---- Stage 3 Calibrator (IEEE-CIS only) ----
         s3_path = settings.stage3_calibrator_path
         if s3_path.exists():
             log.info("Loading Stage 3 calibrator from %s", s3_path)
@@ -66,6 +81,23 @@ class ModelService:
         else:
             log.warning("Stage 3 calibrator not found at %s — will return raw scores only", s3_path)
 
+        # ---- Sparkov Stage 1 LightGBM (optional — demo model) ----
+        sp_path = settings.stage1_sparkov_path
+        if sp_path.exists():
+            log.info("Loading Sparkov Stage 1 from %s", sp_path)
+            try:
+                self.sparkov_model = Stage1LightGBM.load(sp_path)
+                self.sparkov_feature_columns = self.sparkov_model.feature_names
+                self.sparkov_model_version = f"stage1_sparkov@{sp_path.stat().st_mtime_ns}"
+                log.info("Sparkov Stage 1 loaded: %d features, best_iteration=%d",
+                         len(self.sparkov_feature_columns),
+                         self.sparkov_model.model.best_iteration)
+            except Exception as e:
+                log.warning("Sparkov model load failed: %s — Sparkov endpoints will 503", e)
+                self.sparkov_model = None
+        else:
+            log.warning("Sparkov model not found at %s — Sparkov endpoints will 503", sp_path)
+
         self.loaded = True
         return self
 
@@ -73,9 +105,13 @@ class ModelService:
         """Run one dummy prediction so LightGBM JIT-caches, avoiding cold-start."""
         if not self.loaded:
             self.load()
-        log.info("Warming up model with dummy prediction...")
+        log.info("Warming up IEEE-CIS model with dummy prediction...")
         dummy = pd.DataFrame([{c: 0.0 for c in self.feature_columns}])
         _ = self.score(dummy)
+        if self.sparkov_model is not None:
+            log.info("Warming up Sparkov model with dummy prediction...")
+            dummy_sp = pd.DataFrame([{c: 0.0 for c in self.sparkov_feature_columns}])
+            _ = self.score_sparkov(dummy_sp)
         log.info("Warmup complete.")
 
     def score(self, X: pd.DataFrame) -> dict:
@@ -165,6 +201,99 @@ class ModelService:
         if prob < settings.approve_below:
             return "approve"
         if prob > settings.block_above:
+            return "block"
+        return "review"
+
+    # ------------------------------------------------------------------
+    # Sparkov-specific methods (parallel to score/shap but for Sparkov model)
+    # ------------------------------------------------------------------
+    #
+    # Sparkov's fraud rate is ~0.24-0.49% (much lower than IEEE-CIS) so its
+    # score distribution sits at much lower absolute values. The IEEE-CIS
+    # thresholds (0.05 approve / 0.95 block) would route every Sparkov
+    # transaction to "approve" — that defeats the demo.
+    #
+    # Chosen threshold from Sparkov val: 0.0115. We use:
+    #   approve if p < 0.005 (well below the chosen threshold)
+    #   block   if p > 0.05  (~4x the chosen threshold — high confidence)
+    #   review otherwise
+    # ------------------------------------------------------------------
+
+    _SPARKOV_APPROVE_BELOW = 0.005
+    _SPARKOV_BLOCK_ABOVE = 0.05
+
+    def score_sparkov(self, X: pd.DataFrame) -> dict:
+        """Score using the Sparkov Stage 1 model.
+
+        No calibration layer for Sparkov — the raw LightGBM probabilities are
+        already well calibrated (Brier=0.002, ECE=0.002 on test).
+        """
+        if not self.loaded:
+            self.load()
+        if self.sparkov_model is None:
+            raise RuntimeError("Sparkov model is not loaded on this server")
+
+        X_use = self._align_sparkov_columns(X)
+
+        t0 = time.time()
+        raw = self.sparkov_model.predict_proba(X_use)
+        raw = np.asarray(raw, dtype=float)
+        # No calibrator — Sparkov model is already well-calibrated
+        calibrated = raw.copy()
+        decisions = [self._decide_sparkov(p) for p in calibrated]
+        latency_ms = (time.time() - t0) * 1000
+
+        return {
+            "raw_scores": raw,
+            "calibrated_scores": calibrated,
+            "decisions": decisions,
+            "latency_ms": latency_ms,
+        }
+
+    def shap_sparkov(self, X: pd.DataFrame, top_k: int = 5) -> list[dict]:
+        """SHAP top-K contributions for Sparkov model. Same logic as `shap`
+        but against the Sparkov booster + feature space."""
+        if not self.loaded:
+            self.load()
+        if self.sparkov_model is None:
+            raise RuntimeError("Sparkov model is not loaded on this server")
+
+        X_use = self._align_sparkov_columns(X)
+        contribs = self.sparkov_model.model.predict(
+            X_use, pred_contrib=True,
+            num_iteration=self.sparkov_model.model.best_iteration,
+        )
+        contribs = np.asarray(contribs)
+        contribs = contribs[:, :-1]  # drop bias column
+
+        out = []
+        for row_idx in range(len(X_use)):
+            vals = contribs[row_idx]
+            top_indices = np.argsort(-np.abs(vals))[:top_k]
+            entries = []
+            for i in top_indices:
+                feat = self.sparkov_feature_columns[i]
+                entries.append({
+                    "feature": feat,
+                    "value": _safe_scalar(X_use.iloc[row_idx][feat]),
+                    "contribution": float(vals[i]),
+                })
+            out.append(entries)
+        return out
+
+    def _align_sparkov_columns(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Same as _align_columns but against the Sparkov feature list."""
+        missing = set(self.sparkov_feature_columns) - set(X.columns)
+        if missing:
+            X = X.copy()
+            for c in missing:
+                X[c] = 0
+        return X[self.sparkov_feature_columns]
+
+    def _decide_sparkov(self, prob: float) -> str:
+        if prob < self._SPARKOV_APPROVE_BELOW:
+            return "approve"
+        if prob > self._SPARKOV_BLOCK_ABOVE:
             return "block"
         return "review"
 

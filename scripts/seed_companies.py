@@ -98,6 +98,16 @@ SAMPLE_COMPANIES = [
         "admin_password": "ICICI@2026",
         "admin_name": "ICICI Bank Admin",
     },
+    {
+        "name": "BigBasket",
+        "industry": "E-commerce (Groceries)",
+        "size": "Enterprise",
+        "use_case": "Screening online grocery orders and Instamart-style rapid delivery.",
+        "logo_url": None,
+        "admin_email": "admin@bigbasket.demo",
+        "admin_password": "BigBasket@2026",
+        "admin_name": "BigBasket Admin",
+    },
 ]
 
 TXNS_PER_COMPANY = 10
