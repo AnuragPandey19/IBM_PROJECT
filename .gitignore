@@ -81,3 +81,8 @@ docker-compose.override.yml
 *.pdf
 reports/
 
+
+# Sparkov artifacts needed for backend startup
+!models/stage1_sparkov.pkl
+!data/processed/sparkov/
+!data/processed/sparkov/test_features.parquet
