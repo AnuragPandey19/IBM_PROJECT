@@ -9,6 +9,7 @@ import { getUser, isAuthenticated, User } from "@/lib/auth";
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/features", label: "Features" },
+  { href: "/merchants", label: "Live Demo" },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
   { href: "/pricing", label: "Pricing" },

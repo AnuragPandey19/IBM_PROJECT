@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/checkout", tags=["checkout"])
 
-DEMO_COMPANY_NAME = "SecureBuy Electronics"
+DEMO_COMPANY_NAME = "TechMart Electronics"
 DEMO_MERCHANT_NAME = "TechMart Electronics"
 
 DEMO_PRODUCTS = [
@@ -196,6 +196,7 @@ COMPANY_SLUG_TO_NAME: dict[str, str] = {
     "hdfc": "HDFC Bank",
     "icici": "ICICI Bank",
     "razorpay": "Razorpay",
+    "techmart": "TechMart Electronics",
 }
 
 

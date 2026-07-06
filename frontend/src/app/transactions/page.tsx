@@ -48,6 +48,128 @@ const fmtMoney = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 const fmtScore = (n: number | null) => (n === null ? "—" : n.toFixed(3));
 
+// Local-timezone datetime — browser auto-detects user's timezone from ISO UTC string.
+// Backend sometimes emits ISO without a trailing 'Z' (SQLite tz-naive DateTime), which
+// JS would then treat as LOCAL time. Force UTC parsing by appending 'Z' if missing.
+function parseServerIso(iso: string): Date {
+  const s = iso.trim();
+  const hasTz = /Z$|[+-]\d{2}:?\d{2}$/i.test(s);
+  return new Date(hasTz ? s : s + "Z");
+}
+
+function fmtWhen(iso: string | null | undefined): { primary: string; full: string } {
+  if (!iso) return { primary: "—", full: "" };
+  try {
+    const d = parseServerIso(iso);
+    if (isNaN(d.getTime())) return { primary: "—", full: "" };
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      d.getFullYear() === yesterday.getFullYear() &&
+      d.getMonth() === yesterday.getMonth() &&
+      d.getDate() === yesterday.getDate();
+    const timeStr = d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    let primary: string;
+    if (sameDay) primary = `Today, ${timeStr}`;
+    else if (isYesterday) primary = `Yesterday, ${timeStr}`;
+    else
+      primary = d.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+      }) + `, ${timeStr}`;
+    const full = d.toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZoneName: "short",
+    });
+    return { primary, full };
+  } catch {
+    return { primary: "—", full: "" };
+  }
+}
+
+// IEEE-CIS LabelEncoder reverse maps — training encoder sorted alphabetically
+// with __NA__ prepended when the column had NaN values. Used to translate the
+// integer-encoded values that seed_transactions.py stored in the DB back to
+// human-readable strings for display.
+const IEEE_PRODUCT_CD: Record<string, string> = {
+  "1": "C", "2": "H", "3": "R", "4": "S", "5": "W",
+};
+const IEEE_CARD4: Record<string, string> = {
+  "1": "amex", "2": "discover", "3": "mastercard", "4": "visa",
+};
+const IEEE_CARD6: Record<string, string> = {
+  "1": "charge", "2": "credit", "3": "debit", "4": "debit or credit",
+};
+const IEEE_DEVICE_TYPE: Record<string, string> = {
+  "1": "unknown", "2": "desktop", "3": "mobile",
+};
+
+// Display formatting for the Product / Category column. Two data sources:
+//   * Sparkov-style checkout txns    → "sparkov:misc_net"  → "Sparkov · misc_net"
+//   * Seeded IEEE-CIS txns           → "C", "W", …          → "IEEE · W (retail)"
+//   * Also handles legacy encoded ints (1..5) via IEEE_PRODUCT_CD.
+const IEEE_PRODUCT_CD_HINT: Record<string, string> = {
+  "W": "web/retail",
+  "C": "cash-based",
+  "R": "recurring",
+  "H": "household",
+  "S": "special",
+};
+
+function readableProductCd(raw: string | null): { text: string; source: "sparkov" | "ieee" | "unknown" } {
+  if (!raw) return { text: "—", source: "unknown" };
+  // Sparkov format: "sparkov:<category>"
+  if (raw.startsWith("sparkov:")) {
+    const cat = raw.slice("sparkov:".length);
+    return { text: cat.replace(/_/g, " "), source: "sparkov" };
+  }
+  // Legacy encoded int (1..5) → decode to IEEE letter
+  const asNum = raw.replace(/\.0$/, "");
+  if (/^\d+$/.test(asNum) && IEEE_PRODUCT_CD[asNum]) {
+    const letter = IEEE_PRODUCT_CD[asNum];
+    const hint = IEEE_PRODUCT_CD_HINT[letter];
+    return { text: hint ? `${letter} (${hint})` : letter, source: "ieee" };
+  }
+  // Already a letter (W, C, R, H, S) — add hint
+  if (/^[A-Z]$/.test(raw) && IEEE_PRODUCT_CD_HINT[raw]) {
+    return { text: `${raw} (${IEEE_PRODUCT_CD_HINT[raw]})`, source: "ieee" };
+  }
+  return { text: raw, source: "unknown" };
+}
+
+function readableDeviceType(raw: string | null): string {
+  if (!raw) return "—";
+  const asNum = raw.replace(/\.0$/, "");
+  if (/^\d+$/.test(asNum) && IEEE_DEVICE_TYPE[asNum]) return IEEE_DEVICE_TYPE[asNum];
+  return raw;
+}
+
+function labelBadge(isFraud: boolean | null) {
+  if (isFraud === true) {
+    return { text: "FRAUD", color: "#f87171", bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.30)" };
+  }
+  if (isFraud === false) {
+    return { text: "LEGIT", color: "#34d399", bg: "rgba(16,185,129,0.10)", border: "rgba(16,185,129,0.28)" };
+  }
+  return { text: "PENDING", color: "var(--text-faded)", bg: "var(--bg-glass)", border: "var(--border-subtle)" };
+}
+
 function decisionStyle(d: string | null) {
   if (d === "block") return { bg: "rgba(239,68,68,0.12)", text: "#f87171", border: "rgba(239,68,68,0.3)" };
   if (d === "review") return { bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)" };
@@ -233,8 +355,8 @@ function FilterBar({ filters, setFilters, onApply, onClear, activeCount }: {
           </select>
         </label>
         <label className="block">
-          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Product</span>
-          <input type="text" value={filters.product_cd} onChange={e => set("product_cd", e.target.value)} className={inputCls} style={inputStyle} placeholder="W" />
+          <span className="text-[10px] uppercase tracking-widest font-semibold mb-1 block" style={{ color: "var(--text-faded)" }}>Category</span>
+          <input type="text" value={filters.product_cd} onChange={e => set("product_cd", e.target.value)} className={inputCls} style={inputStyle} placeholder="W, shopping_net…" />
         </label>
       </div>
       <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
@@ -264,23 +386,25 @@ function TxnTable({ rows }: { rows: TxnSummary[] }) {
     <>
       <table className="w-full text-sm table-fixed">
         <colgroup>
-          <col style={{ width: "7%" }} />
-          <col style={{ width: "22%" }} />
+          <col style={{ width: "6%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "16%" }} />
+          <col style={{ width: "11%" }} />
+          <col style={{ width: "10%" }} />
           <col style={{ width: "12%" }} />
           <col style={{ width: "10%" }} />
-          <col style={{ width: "13%" }} />
+          <col style={{ width: "11%" }} />
           <col style={{ width: "10%" }} />
-          <col style={{ width: "13%" }} />
-          <col style={{ width: "13%" }} />
         </colgroup>
         <thead>
           <tr style={{ background: "var(--bg-glass)", borderBottom: "1px solid var(--border-subtle)" }}>
             <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>ID</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>When</th>
             <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>External</th>
             <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Amount</th>
             <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Score</th>
             <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Decision</th>
-            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Product</th>
+            <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Category</th>
             <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Device</th>
             <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest font-semibold" style={{ color: "var(--text-faded)" }}>Label</th>
           </tr>
@@ -310,6 +434,9 @@ function TxnTable({ rows }: { rows: TxnSummary[] }) {
                     #{r.id}
                   </Link>
                 </td>
+                <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: "var(--text-secondary)" }} title={fmtWhen(r.created_at).full}>
+                  {fmtWhen(r.created_at).primary}
+                </td>
                 <td className="px-4 py-3 font-mono text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{r.external_id ?? "—"}</td>
                 <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ color: "var(--text-primary)" }}>{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-3 text-right font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>{fmtScore(r.latest_score)}</td>
@@ -321,12 +448,41 @@ function TxnTable({ rows }: { rows: TxnSummary[] }) {
                     {r.latest_decision ?? "none"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>{r.product_cd ?? "—"}</td>
-                <td className="px-4 py-3 text-xs truncate" style={{ color: "var(--text-muted)" }}>{r.device_type ?? "—"}</td>
+                <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {(() => {
+                    const p = readableProductCd(r.product_cd);
+                    if (p.source === "sparkov") {
+                      return (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(139,92,246,0.12)", color: "#a78bfa" }}>Sparkov</span>
+                          <span style={{ color: "var(--text-primary)" }}>{p.text}</span>
+                        </span>
+                      );
+                    }
+                    if (p.source === "ieee") {
+                      return (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(244,63,94,0.10)", color: "#f43f5e" }}>IEEE</span>
+                          <span style={{ color: "var(--text-primary)" }}>{p.text}</span>
+                        </span>
+                      );
+                    }
+                    return <span>{p.text}</span>;
+                  })()}
+                </td>
+                <td className="px-4 py-3 text-xs truncate" style={{ color: "var(--text-muted)" }}>{readableDeviceType(r.device_type)}</td>
                 <td className="px-4 py-3 text-xs">
-                  {r.is_fraud === true && <span style={{ color: "#f87171", fontWeight: 600 }}>FRAUD</span>}
-                  {r.is_fraud === false && <span style={{ color: "var(--text-muted)" }}>legit</span>}
-                  {r.is_fraud === null && <span style={{ color: "var(--text-faded)" }}>—</span>}
+                  {(() => {
+                    const b = labelBadge(r.is_fraud);
+                    return (
+                      <span
+                        className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider"
+                        style={{ background: b.bg, border: `1px solid ${b.border}`, color: b.color }}
+                      >
+                        {b.text}
+                      </span>
+                    );
+                  })()}
                 </td>
               </tr>
             );
@@ -342,14 +498,22 @@ function TxnTable({ rows }: { rows: TxnSummary[] }) {
               <div className="flex justify-between gap-4"><span>Amount</span><span style={{ color: "var(--text-primary)" }}>{fmtMoney(hover.row.amount)}</span></div>
               <div className="flex justify-between gap-4"><span>Score</span><span style={{ color: "var(--text-primary)" }}>{fmtScore(hover.row.latest_score)}</span></div>
               <div className="flex justify-between gap-4"><span>Decision</span><span style={{ color: decisionStyle(hover.row.latest_decision).text }}>{(hover.row.latest_decision ?? "—").toUpperCase()}</span></div>
-              <div className="flex justify-between gap-4"><span>Product</span><span style={{ color: "var(--text-primary)" }}>{hover.row.product_cd ?? "—"}</span></div>
-              <div className="flex justify-between gap-4"><span>Device</span><span style={{ color: "var(--text-primary)" }}>{hover.row.device_type ?? "—"}</span></div>
+              <div className="flex justify-between gap-4"><span>Category</span><span style={{ color: "var(--text-primary)" }}>{readableProductCd(hover.row.product_cd).text}</span></div>
+              <div className="flex justify-between gap-4"><span>Device</span><span style={{ color: "var(--text-primary)" }}>{readableDeviceType(hover.row.device_type)}</span></div>
               <div className="flex justify-between gap-4"><span>Email</span><span style={{ color: "var(--text-primary)" }}>{hover.row.p_emaildomain ?? "—"}</span></div>
-              <div className="flex justify-between gap-4">
+              <div className="flex justify-between gap-4 items-center">
                 <span>Label</span>
-                <span style={{ color: hover.row.is_fraud === true ? "#f87171" : hover.row.is_fraud === false ? "#34d399" : "var(--text-faded)" }}>
-                  {hover.row.is_fraud === true ? "FRAUD" : hover.row.is_fraud === false ? "Legit" : "Unknown"}
-                </span>
+                {(() => {
+                  const b = labelBadge(hover.row.is_fraud);
+                  return (
+                    <span
+                      className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                      style={{ background: b.bg, border: `1px solid ${b.border}`, color: b.color }}
+                    >
+                      {b.text}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
             <div className="mt-2 pt-2 border-t text-[10px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-faded)" }}>

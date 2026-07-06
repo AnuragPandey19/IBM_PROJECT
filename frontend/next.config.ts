@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+
+  // Hide the "N" dev indicator that appears in the bottom-left in dev mode.
+  // (It never renders in production/HF Space anyway, but this also cleans up
+  // local dev screenshots when preparing the mentor demo.)
+  devIndicators: false,
 };
 
 export default nextConfig;

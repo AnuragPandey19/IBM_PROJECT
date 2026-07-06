@@ -41,6 +41,32 @@ CORE_COLS = [
 ]
 
 
+# IEEE-CIS LabelEncoder inverse mappings — training encoder sorted alphabetically
+# and started at 1 (0 reserved for NaN when present). test_features.parquet stores
+# encoded integers; the DB and dashboard need to show human-readable strings.
+IEEE_PRODUCT_CD_REV = {1: "C", 2: "H", 3: "R", 4: "S", 5: "W"}
+IEEE_CARD4_REV = {1: "amex", 2: "discover", 3: "mastercard", 4: "visa"}
+IEEE_CARD6_REV = {1: "charge", 2: "credit", 3: "debit", 4: "debit or credit"}
+IEEE_DEVICE_TYPE_REV = {1: "unknown", 2: "desktop", 3: "mobile"}
+
+
+def _decode(raw, mapping):
+    """Convert an encoded int (or int-like) value back to its string label.
+    Passes strings through unchanged so already-decoded parquets still work.
+    Returns None for NaN / empty."""
+    if raw is None:
+        return None
+    try:
+        if hasattr(raw, "item"):
+            raw = raw.item()
+        if isinstance(raw, str) and not raw.isdigit():
+            return raw
+        n = int(float(raw))
+        return mapping.get(n)
+    except (ValueError, TypeError):
+        return str(raw)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="data/processed/ieee_cis/test_features.parquet",
@@ -132,12 +158,12 @@ def main():
                 transaction_dt=int(row["TransactionDT"]) if "TransactionDT" in df.columns else None,
                 amount=float(row["TransactionAmt"]),
                 card1=str(int(row["card1"])) if "card1" in df.columns and pd.notna(row["card1"]) else None,
-                card4=str(row["card4"]) if "card4" in df.columns and pd.notna(row["card4"]) else None,
-                card6=str(row["card6"]) if "card6" in df.columns and pd.notna(row["card6"]) else None,
-                product_cd=str(row["ProductCD"]) if "ProductCD" in df.columns and pd.notna(row["ProductCD"]) else None,
+                card4=_decode(row.get("card4") if "card4" in df.columns and pd.notna(row.get("card4")) else None, IEEE_CARD4_REV),
+                card6=_decode(row.get("card6") if "card6" in df.columns and pd.notna(row.get("card6")) else None, IEEE_CARD6_REV),
+                product_cd=_decode(row.get("ProductCD") if "ProductCD" in df.columns and pd.notna(row.get("ProductCD")) else None, IEEE_PRODUCT_CD_REV),
                 addr1=str(int(row["addr1"])) if "addr1" in df.columns and pd.notna(row["addr1"]) else None,
                 p_emaildomain=str(row["P_emaildomain"]) if "P_emaildomain" in df.columns and pd.notna(row["P_emaildomain"]) else None,
-                device_type=str(row["DeviceType"]) if "DeviceType" in df.columns and pd.notna(row["DeviceType"]) else None,
+                device_type=_decode(row.get("DeviceType") if "DeviceType" in df.columns and pd.notna(row.get("DeviceType")) else None, IEEE_DEVICE_TYPE_REV),
                 device_info=str(row["DeviceInfo"]) if "DeviceInfo" in df.columns and pd.notna(row["DeviceInfo"]) else None,
                 raw_features=raw,
                 is_fraud=bool(row["isFraud"]) if "isFraud" in df.columns else None,

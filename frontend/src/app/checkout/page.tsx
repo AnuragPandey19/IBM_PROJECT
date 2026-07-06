@@ -158,6 +158,7 @@ export default function CheckoutPage() {
       merchant_name: merchantName,
       merchant_category: category,
       cust_email: email || undefined,
+      company_slug: "techmart",   // Routes txn to TechMart Electronics company_id
       demo_profile: selectedProfile,
       demo_hour_override: demoHour ? parseInt(demoHour, 10) : undefined,
     };

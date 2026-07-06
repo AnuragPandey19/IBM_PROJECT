@@ -108,6 +108,16 @@ SAMPLE_COMPANIES = [
         "admin_password": "BigBasket@2026",
         "admin_name": "BigBasket Admin",
     },
+    {
+        "name": "TechMart Electronics",
+        "industry": "E-commerce (Electronics)",
+        "size": "SMB (51-500)",
+        "use_case": "USD-denominated demo storefront — used by CHIMERA-FD's public /checkout page.",
+        "logo_url": None,
+        "admin_email": "admin@techmart.demo",
+        "admin_password": "TechMart@2026",
+        "admin_name": "TechMart Admin",
+    },
 ]
 
 TXNS_PER_COMPANY = 10

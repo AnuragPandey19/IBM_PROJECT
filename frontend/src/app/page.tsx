@@ -58,14 +58,21 @@ export default function LandingPage() {
             {loggedIn ? (
               <>
                 <Link
-                  href="/dashboard"
-                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-base transition shadow-xl shadow-red-500/30 hover:shadow-red-500/50 hover:-translate-y-0.5"
+                  href="/merchants"
+                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-base transition shadow-xl shadow-red-500/30 hover:shadow-red-500/50 hover:-translate-y-0.5 flex items-center gap-2"
                 >
-                  Go to dashboard &rarr;
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  Try live demo &rarr;
+                </Link>
+                <Link
+                  href="/dashboard"
+                  className="px-6 py-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 font-semibold rounded-lg text-base transition"
+                >
+                  Go to dashboard
                 </Link>
                 <Link
                   href="/analytics"
-                  className="px-6 py-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 font-semibold rounded-lg text-base transition"
+                  className="px-6 py-3 text-slate-400 hover:text-white font-semibold text-base transition"
                 >
                   View analytics
                 </Link>
@@ -73,14 +80,21 @@ export default function LandingPage() {
             ) : (
               <>
                 <Link
-                  href="/register"
-                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-base transition shadow-xl shadow-red-500/30 hover:shadow-red-500/50 hover:-translate-y-0.5"
+                  href="/merchants"
+                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-base transition shadow-xl shadow-red-500/30 hover:shadow-red-500/50 hover:-translate-y-0.5 flex items-center gap-2"
                 >
-                  Start free workspace &rarr;
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  Try live demo &rarr;
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-6 py-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 font-semibold rounded-lg text-base transition"
+                >
+                  Start free workspace
                 </Link>
                 <Link
                   href="/features"
-                  className="px-6 py-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 font-semibold rounded-lg text-base transition"
+                  className="px-6 py-3 text-slate-400 hover:text-white font-semibold text-base transition"
                 >
                   Explore features
                 </Link>
