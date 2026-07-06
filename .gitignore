@@ -75,3 +75,9 @@ config/secrets.yaml
 
 # Docker
 docker-compose.override.yml
+
+# Reports (bhaari + regenerable)
+*.docx
+*.pdf
+reports/
+
