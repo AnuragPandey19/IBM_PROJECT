@@ -82,7 +82,14 @@ docker-compose.override.yml
 reports/
 
 
-# Sparkov artifacts needed for backend startup
+# Sparkov artifacts needed for backend startup.
+# Same pattern as ieee_cis above: whitelist the folder to allow recursion,
+# then explicitly BLOCK ALL contents, then whitelist only the file the
+# backend actually needs (test_features.parquet drives SparkovLookups).
+# Without the block-all-contents line, train_features.parquet (156 MB) and
+# val_features.parquet (22 MB) would be committed too, bloating the repo
+# and blowing past HF Space LFS bandwidth on rebuilds.
 !models/stage1_sparkov.pkl
 !data/processed/sparkov/
+data/processed/sparkov/*
 !data/processed/sparkov/test_features.parquet
