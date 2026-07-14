@@ -446,7 +446,7 @@ export default function CheckoutPage() {
             </button>
 
             <div className="mt-3 text-[10px] text-slate-500 text-center">
-              Your payment is scored by CHIMERA-FD's LightGBM model in real-time.
+              Your payment is scored by CHIMERA-FD&apos;s LightGBM model in real-time.
               <br />
               No money is actually charged.
             </div>

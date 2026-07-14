@@ -463,7 +463,7 @@ export function MerchantCheckout({ config }: { config: MerchantConfig }) {
             </button>
 
             <div className="mt-3 text-[10px] text-slate-500 text-center leading-relaxed">
-              Payment scored by CHIMERA-FD's LightGBM model in real-time. No money is actually charged.
+              Payment scored by CHIMERA-FD&apos;s LightGBM model in real-time. No money is actually charged.
               <br />
               <span className="text-slate-600">
                 Fraud engine trained on USD data (Sparkov benchmark); INR displayed here, converted at ₹80/USD for scoring.

@@ -5,6 +5,7 @@
  * child component throws during rendering. Without it, the entire app
  * white-screens with no recovery.
  */
+import Link from "next/link";
 import { useEffect } from "react";
 
 export default function GlobalError({
@@ -49,12 +50,12 @@ export default function GlobalError({
           >
             Try again
           </button>
-          <a
+          <Link
             href="/"
             className="px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-sm transition"
           >
             Home
-          </a>
+          </Link>
         </div>
         {process.env.NODE_ENV === "development" && (
           <pre className="mt-6 p-3 text-[10px] text-left rounded-lg bg-slate-900 border border-slate-800 text-slate-400 overflow-auto max-h-48 font-mono">
