@@ -58,10 +58,19 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
+# Cache bust: touching this comment invalidates every layer below so a
+# .dockerignore change actually re-copies the data/ tree. HF Spaces
+# aggressively cached the pre-fix layer where data/processed/sparkov/
+# was excluded, so we need to force the copy on the next rebuild.
+# Rebuild trigger: 2026-07-14
 COPY api/            ./api/
 COPY src/            ./src/
 COPY models/         ./models/
+# Explicit verification the sparkov parquet lands in the image.
 COPY data/           ./data/
+RUN test -f /app/data/processed/sparkov/test_features.parquet && \
+    echo "OK sparkov parquet present" || \
+    (echo "FAIL sparkov parquet missing" && ls -R /app/data/processed && exit 1)
 COPY scripts/        ./scripts/
 
 # Copy built Next.js static export from stage 1 into ./frontend_dist/
