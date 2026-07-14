@@ -480,7 +480,6 @@ function ResultScreen({
 }) {
   const isApproved = result.status === "approved";
   const isDeclined = result.status === "declined";
-  const isReview = result.status === "review";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-start justify-center pt-16 pb-16 px-6">
