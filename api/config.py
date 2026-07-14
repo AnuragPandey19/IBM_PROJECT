@@ -64,10 +64,17 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 60 * 8   # 8 hours
 
     # ---- CORS ----
+    # Localhost origins are always allowed for dev. Add production origins via
+    # the CORS_ORIGINS env var (comma-separated) — pydantic-settings will parse
+    # a JSON list or a comma-separated string.
+    #   Example: CORS_ORIGINS='["https://undebuggedbit-chimera-fd.hf.space"]'
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
+        # HF Space same-origin production URL (frontend served from same host,
+        # but keep this here so a separately-hosted frontend can still be added).
+        "https://undebuggedbit-chimera-fd.hf.space",
     ]
 
     # ---- Logging ----

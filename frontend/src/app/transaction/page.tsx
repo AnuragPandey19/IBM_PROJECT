@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { logout } from "@/lib/auth";
+import { fmtDateTime } from "@/lib/datetime";
 import { AppShell } from "@/components/AppShell";
 import { ShapWaterfall, ShapContribution } from "@/components/ShapWaterfall";
 
@@ -42,7 +43,6 @@ type TxnDetail = {
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 const fmtScore = (n: number | null) => (n === null ? "-" : n.toFixed(4));
-const fmtDateTime = (iso: string) => new Date(iso).toLocaleString();
 
 function decisionColor(d: string): string {
   if (d === "block") return "text-red-400 bg-red-500/10 border-red-500/30";

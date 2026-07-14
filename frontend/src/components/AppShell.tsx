@@ -16,6 +16,8 @@ const EXPLORE_NAV = [
   { href: "/contact", label: "Contact" },
 ];
 
+const APP_TAGLINE = process.env.NEXT_PUBLIC_TAGLINE ?? "IBM 2026";
+
 export function AppShell({
   title,
   subtitle,
@@ -33,6 +35,8 @@ export function AppShell({
   const [theme, setThemeState] = useState<"dark" | "light">("dark");
   const [notifOpen, setNotifOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Lazy init so we don't re-parse the localStorage JSON on every render.
+  const [user] = useState(() => (typeof window !== "undefined" ? getUser() : null));
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -59,8 +63,6 @@ export function AppShell({
       </div>
     );
   }
-
-  const user = getUser();
 
   function handleThemeToggle() {
     const next = toggleTheme();
@@ -113,7 +115,7 @@ export function AppShell({
                   className="text-[9px] tracking-[0.2em] font-semibold uppercase"
                   style={{ color: "var(--accent-primary)" }}
                 >
-                  IBM 2026
+                  {APP_TAGLINE}
                 </div>
               </div>
             </Link>

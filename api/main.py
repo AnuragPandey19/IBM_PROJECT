@@ -25,18 +25,18 @@ from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.db.session import init_db
+from api.logging_config import configure_logging
+from api.middleware import RequestIdMiddleware
 from api.routes import analytics, auth, checkout, health, metrics, notifications, predict, predict_sparkov, profile, transactions
 from api.services.model_service import get_model_service
 from api.services.sparkov_lookups import get_sparkov_lookups
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-log = logging.getLogger("api")
-
+# Structured JSON logging in prod, human-readable in dev. Installs a filter
+# that stamps every LogRecord with the current request_id (populated by
+# RequestIdMiddleware) so a single request can be traced across N log lines.
 settings = get_settings()
+configure_logging(env=settings.env, log_level=settings.log_level)
+log = logging.getLogger("api")
 
 # Where the Next.js static export lives when running inside Docker.
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend_dist"
@@ -121,9 +121,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Request-ID middleware — MUST be added AFTER CORS so the CORS response for
+# preflights also carries X-Request-ID. Every response is tagged with a
+# unique UUID + response time in milliseconds.
+app.add_middleware(RequestIdMiddleware)
+
+
+# ---- Security headers ----------------------------------------------------
+# Applied to every response. Cheap, no-dependency middleware — protects against
+# common browser-level attacks (clickjacking, MIME-sniffing, referrer leakage).
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Deny embedding in iframes on other origins (clickjacking).
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    # Prevent browsers from MIME-sniffing content type.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    # Don't leak the referring URL when navigating to third parties.
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # Lock down browser features we don't need.
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()"
+    )
+    # Only serve JSON with the correct content type — belt & suspenders.
+    if request.url.path.startswith("/api"):
+        # Basic CSP for API — no scripts or frames at all.
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'"
+        )
+    return response
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    from api.logging_config import get_request_id
+    rid = get_request_id()
     log.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
@@ -131,6 +165,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "detail": "internal server error",
             "type": type(exc).__name__,
             "path": request.url.path,
+            # Surface the request_id so support / mentors can grep it in logs.
+            "request_id": rid,
         },
     )
 

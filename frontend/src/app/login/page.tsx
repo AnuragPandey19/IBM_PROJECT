@@ -35,7 +35,9 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.status === 401 ? "Invalid email or password" : err.message);
+        if (err.status === 401) setError("Invalid email or password");
+        else if (err.status === 429) setError("Too many attempts. Please wait a few minutes and try again.");
+        else setError(err.message);
       } else {
         setError("Could not reach the server. Is the backend running?");
       }

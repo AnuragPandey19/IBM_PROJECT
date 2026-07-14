@@ -28,6 +28,7 @@ from api.config import get_settings
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
 from api.dependencies.auth import require_company
+from api.dependencies.rate_limit import rate_limit
 from api.schemas.predict import PredictionResponse, ShapContribution
 from api.schemas.predict_sparkov import (
     SparkovLookupResponse,
@@ -350,6 +351,9 @@ def predict_sparkov(
     payload: SparkovTransactionInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_company),
+    # Same reasoning as /api/predict — cap at 60 req/min per IP. Both engines
+    # share the same LightGBM booster memory so the risk is identical.
+    _rl: None = Depends(rate_limit("predict_sparkov", per_ip=60, window_s=60.0)),
 ):
     """Score a human-readable Sparkov-style transaction."""
     ms = get_model_service()

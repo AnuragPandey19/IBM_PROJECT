@@ -53,6 +53,13 @@ def _year_start(dt: datetime) -> datetime:
     return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+# Hard caps — never allow more than this many buckets even if the query says
+# otherwise. Prevents a compromised client from asking for e.g. 60 years of
+# monthly buckets and forcing the backend to walk millions of rows in Python.
+_MAX_MONTHLY_BUCKETS = 12
+_MAX_YEARLY_BUCKETS = 5
+
+
 @router.get("/timeseries", response_model=TimeSeries)
 def get_timeseries(
     period: Literal["monthly", "yearly"] = Query("monthly"),
@@ -68,6 +75,12 @@ def get_timeseries(
     Aggregates are computed in Python from raw rows rather than SQL date_trunc
     to keep the code portable across SQLite (dev) and PostgreSQL (prod).
     """
+    # Enforce hard caps regardless of what the client asked for.
+    if period == "monthly":
+        limit = min(limit, _MAX_MONTHLY_BUCKETS)
+    else:
+        limit = min(limit, _MAX_YEARLY_BUCKETS)
+
     company_id = current_user.company_id
     # tz-naive UTC to stay compatible with SQLite's tz-naive Transaction/
     # Prediction.created_at columns. Postgres tolerates both.

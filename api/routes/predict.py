@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
 from api.dependencies.auth import require_company
+from api.dependencies.rate_limit import rate_limit
 from api.schemas.predict import PredictionResponse, ShapContribution, TransactionInput
 from api.services.feature_service import get_feature_service
 from api.services.model_service import get_model_service
@@ -154,6 +155,11 @@ def predict(
     payload: TransactionInput,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_company),
+    # Even though /predict is auth-gated (unlike /api/checkout), a compromised
+    # or careless client could still hammer it and pin CPU/model latency.
+    # 60/min per IP is roughly one prediction per second — plenty of headroom
+    # for legitimate demos and analysts, hard cap on abuse.
+    _rl: None = Depends(rate_limit("predict", per_ip=60, window_s=60.0)),
 ):
     """Score a single transaction end-to-end. The new Transaction and
     Prediction rows are tagged with the caller's company_id so that

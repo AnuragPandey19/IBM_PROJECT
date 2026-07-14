@@ -1,0 +1,6 @@
+# CHIMERA-FD is a private analyst dashboard, not a public resource.
+# Ask crawlers not to index anything. Authenticated pages are already
+# JWT-gated, but the login/register pages leak nothing but marketing copy —
+# still no reason for search engines to catalog them.
+User-agent: *
+Disallow: /

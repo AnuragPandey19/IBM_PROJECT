@@ -1,0 +1,100 @@
+# CI pipeline for CHIMERA-FD.
+#
+# Runs on every push and PR. Fast-fails on:
+#   - Python import errors (backend won't even start)
+#   - Multi-tenancy isolation regressions (highest-value guarantee)
+#   - Frontend build failures (Next.js production build)
+#
+# NOT run in CI (deliberate):
+#   - Full model training (needs 10 GB of IEEE-CIS parquets we don't ship)
+#   - Model file presence — checked at HF Space build time via Dockerfile RUN
+#   - The `test_loader` suite that needs raw IEEE-CIS parquets
+#
+# Deployment (Hugging Face Space) is intentionally NOT wired here. HF pulls
+# from git-lfs automatically on push to `main`, so a separate deploy job would
+# just race the platform's own trigger.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs so a rapid push sequence doesn't queue up N runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (lint + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-api.txt
+
+      - name: Install backend deps
+        # requirements-api.txt is the slim runtime; requirements.txt is the
+        # training superset. CI only needs runtime + pytest.
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-api.txt ]; then
+            pip install -r requirements-api.txt
+          else
+            pip install -r requirements.txt
+          fi
+          pip install pytest httpx
+
+      - name: Compile-check every backend module
+        # Cheap sanity: catches import errors, syntax errors, misspelled
+        # dependencies before pytest ever runs. Runs in <5 s.
+        run: python -m compileall -q api scripts src
+
+      - name: Run multi-tenancy isolation tests
+        env:
+          ENV: dev
+          JWT_SECRET_KEY: ci-test-secret-not-for-prod
+        run: pytest tests/test_multi_tenancy.py -v
+
+  frontend:
+    name: frontend (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (production)
+        # NEXT_PUBLIC_API_URL is a build-time constant baked into the bundle.
+        # CI uses a placeholder — the real value is set at HF Space build time.
+        env:
+          NEXT_PUBLIC_API_URL: https://ci-placeholder.local
+        run: npm run build

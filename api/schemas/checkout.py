@@ -24,22 +24,24 @@ class CheckoutRequest(BaseModel):
     # Payment
     card_number: str = Field(min_length=8, max_length=32)
     cardholder_name: str = Field(min_length=1, max_length=64)
-    card_expiry: Optional[str] = None
-    card_cvv: Optional[str] = None
+    card_expiry: Optional[str] = Field(default=None, max_length=8)
+    card_cvv: Optional[str] = Field(default=None, max_length=4)
 
-    # Order
-    amount: float = Field(gt=0, description="Charge amount in USD")
-    merchant_name: str = Field(default="TechMart Electronics")
-    merchant_category: str = Field(default="shopping_net")
+    # Order — capped at reasonable lengths to prevent JSON payload abuse.
+    # amount hard-capped at 10^7 (10 million) — anything above is not a real
+    # transaction and would only exist to blow up analytics aggregations.
+    amount: float = Field(gt=0, le=1e7, description="Charge amount in USD")
+    merchant_name: str = Field(default="TechMart Electronics", min_length=1, max_length=128)
+    merchant_category: str = Field(default="shopping_net", min_length=1, max_length=64)
 
     # Optional customer identity
-    cust_email: Optional[str] = None
+    cust_email: Optional[str] = Field(default=None, max_length=254)
 
     # Multi-merchant routing: which company's dashboard does this transaction
     # belong to? A real payment gateway would derive this from an API key
     # embedded in the merchant integration. In the demo, the merchant portal
     # frontend hardcodes its own slug.
-    company_slug: Optional[str] = Field(default=None,
+    company_slug: Optional[str] = Field(default=None, max_length=64,
                                         description="Slug of the merchant company (zomato, swiggy, bigbasket)")
 
     # DEMO CONTROLS (would not exist in a real gateway, but critical here so

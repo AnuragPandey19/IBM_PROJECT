@@ -28,6 +28,25 @@ export const metadata: Metadata = {
     "Cascaded Hybrid Inference with Multi-modal Explanations and Recalibration for Adaptive Fraud Detection.",
 };
 
+/**
+ * Runs synchronously in the browser BEFORE React hydration. Reads the
+ * persisted theme and sets the `data-theme` attribute on `<html>` so
+ * CSS variables cascade correctly on the very first paint — no dark→light
+ * flash if the user has previously chosen light. Falls back to the OS
+ * preference via `prefers-color-scheme` when no explicit choice exists.
+ */
+const THEME_BOOT_SCRIPT = `
+(function () {
+  try {
+    var stored = localStorage.getItem('chimera_theme');
+    var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,6 +58,11 @@ export default function RootLayout({
       className={`${inter.variable} ${fraunces.variable} ${jetBrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Prevents the wrong-theme flash between SSR and hydration. Must run
+            before any component renders. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <ThemeInit />
         {children}

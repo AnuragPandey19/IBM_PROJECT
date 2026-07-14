@@ -22,29 +22,43 @@ export function ShapWaterfall({ contributions }: { contributions: ShapContributi
   const maxAbs = Math.max(...sorted.map((c) => Math.abs(c.contribution)), 0.001);
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-[minmax(120px,1fr)_1fr_1fr_100px] gap-3 text-[10px] uppercase tracking-wider text-slate-500 pb-2 border-b border-slate-800">
-        <div>Feature</div>
-        <div className="text-right pr-4">&larr; toward legit</div>
-        <div className="pl-4">toward fraud &rarr;</div>
-        <div className="text-right">Contribution</div>
+    // role=table so assistive tech announces the columns semantically.
+    <div role="table" aria-label="SHAP feature contributions" className="space-y-2">
+      <div
+        role="row"
+        className="grid grid-cols-[minmax(120px,1fr)_1fr_1fr_100px] gap-3 text-[10px] uppercase tracking-wider text-slate-500 pb-2 border-b border-slate-800"
+      >
+        <div role="columnheader">Feature</div>
+        <div role="columnheader" className="text-right pr-4">← toward legit</div>
+        <div role="columnheader" className="pl-4">toward fraud →</div>
+        <div role="columnheader" className="text-right">Contribution</div>
       </div>
 
       {sorted.map((c, i) => {
         const isPositive = c.contribution > 0;
         const widthPct = (Math.abs(c.contribution) / maxAbs) * 100;
+        const direction = isPositive ? "toward fraud" : "toward legit";
+        const contribText = `${isPositive ? "+" : ""}${c.contribution.toFixed(4)}`;
+        // Human-readable label for screen readers: covers direction, magnitude,
+        // and the underlying feature value.
+        const ariaLabel =
+          `Feature ${c.feature} contributes ${contribText} ${direction}. ` +
+          `Feature value: ${fmtFeatureValue(c.value)}.`;
         return (
           <div
+            role="row"
+            aria-label={ariaLabel}
             key={`${c.feature}-${i}`}
-            className="grid grid-cols-[minmax(120px,1fr)_1fr_1fr_100px] gap-3 items-center text-sm"
+            className="grid grid-cols-[minmax(120px,1fr)_1fr_1fr_100px] gap-3 items-center text-sm focus-within:ring-1 focus-within:ring-slate-500 rounded"
+            tabIndex={0}
           >
-            <div>
+            <div role="cell">
               <div className="font-mono text-xs text-slate-200">{c.feature}</div>
               <div className="text-[10px] text-slate-500">
                 value: <span className="font-mono">{fmtFeatureValue(c.value)}</span>
               </div>
             </div>
-            <div className="flex justify-end">
+            <div role="cell" aria-hidden="true" className="flex justify-end">
               {!isPositive && (
                 <div
                   className="h-6 bg-emerald-500/60 border-r border-emerald-400 rounded-l"
@@ -52,7 +66,7 @@ export function ShapWaterfall({ contributions }: { contributions: ShapContributi
                 />
               )}
             </div>
-            <div>
+            <div role="cell" aria-hidden="true">
               {isPositive && (
                 <div
                   className="h-6 bg-red-500/60 border-l border-red-400 rounded-r"
@@ -60,8 +74,17 @@ export function ShapWaterfall({ contributions }: { contributions: ShapContributi
                 />
               )}
             </div>
-            <div className={`text-right font-mono text-xs ${isPositive ? "text-red-400" : "text-emerald-400"}`}>
-              {isPositive ? "+" : ""}{c.contribution.toFixed(4)}
+            <div
+              role="cell"
+              className={`text-right font-mono text-xs ${isPositive ? "text-red-400" : "text-emerald-400"}`}
+            >
+              {/* Include an explicit +/- prefix and a color-independent symbol so
+                  colorblind users can still tell fraud vs legit at a glance. */}
+              <span className="sr-only">{direction}: </span>
+              {contribText}
+              <span aria-hidden="true" className="ml-1 text-[9px] opacity-70">
+                {isPositive ? "↑" : "↓"}
+              </span>
             </div>
           </div>
         );

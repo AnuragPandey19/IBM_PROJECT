@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { logout } from "@/lib/auth";
+import { timeAgo } from "@/lib/datetime";
 import { useRouter } from "next/navigation";
 
 type Notification = {
@@ -21,14 +22,7 @@ type NotificationList = {
   unread_count: number;
 };
 
-function timeAgo(iso: string): string {
-  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+// timeAgo moved to shared lib/datetime.ts (fixes UTC-Z parsing bug).
 
 function severityStyle(sev: string) {
   if (sev === "critical") return { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.3)", text: "#f87171" };
@@ -116,14 +110,15 @@ export function NotificationPanel({
     }
   };
 
-  // Fetch when opened & on mount for badge
+  // Single fetch effect that handles both mount (for badge count) and open
+  // toggle (for panel content). Deduplicated so opening within 500 ms of mount
+  // doesn't fire two overlapping requests.
+  const lastLoadRef = useRef<number>(0);
   useEffect(() => {
+    const now = Date.now();
+    if (now - lastLoadRef.current < 500) return;
+    lastLoadRef.current = now;
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (open) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

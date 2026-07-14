@@ -58,10 +58,13 @@ const APP_NAV: NavItem[] = [
   },
 ];
 
+const SIDEBAR_SECTION_LABEL = process.env.NEXT_PUBLIC_SIDEBAR_SECTION ?? "Fraud Ops";
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const user = getUser();
+  // Lazy init so we don't re-read + JSON.parse localStorage on every render.
+  const [user] = useState(() => (typeof window !== "undefined" ? getUser() : null));
   // Two-phase mount to avoid hydration flash. Server render + first client
   // render are both `collapsed=false` (matches SSR). Only after mount do we
   // read localStorage and apply the persisted preference. `mounted` gates
@@ -169,7 +172,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto px-3 py-2">
         {!collapsed && (
           <div className="text-[10px] tracking-[0.15em] font-semibold uppercase mb-2 px-3 animate-fade-in" style={{ color: "var(--text-faded)" }}>
-            Fraud Ops
+            {SIDEBAR_SECTION_LABEL}
           </div>
         )}
         <nav>

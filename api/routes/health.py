@@ -2,6 +2,7 @@
 Kubernetes probes, monitoring systems."""
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -11,6 +12,10 @@ from sqlalchemy.orm import Session
 
 from api.config import Settings, get_settings
 from api.db.session import get_db
+
+# DB roundtrip slower than this is treated as degraded (still passes health
+# but signals we should investigate). 500 ms is generous for `SELECT 1`.
+_DB_SLOW_MS = 500.0
 
 
 # ==========================================================================
@@ -81,9 +86,17 @@ def readiness_check(
     """Readiness — 'is the app ready to serve traffic?'  Checks DB + model files."""
     checks = {}
 
+    db_latency_ms: float | None = None
     try:
+        _t0 = time.perf_counter()
         db.execute(text("SELECT 1"))
-        checks["database"] = "ok"
+        db_latency_ms = round((time.perf_counter() - _t0) * 1000.0, 2)
+        # Report slow DB as a distinct status so monitoring can alert on it
+        # without flipping the whole readiness check to fail.
+        if db_latency_ms > _DB_SLOW_MS:
+            checks["database"] = f"slow: {db_latency_ms}ms"
+        else:
+            checks["database"] = "ok"
     except Exception as e:
         checks["database"] = f"fail: {type(e).__name__}"
 
