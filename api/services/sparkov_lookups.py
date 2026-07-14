@@ -149,21 +149,38 @@ class SparkovLookups:
         return self
 
     # ---- Encoding lookups (with sensible fallbacks) ----
+    # Unknown values fall back to the training-set global mean. This is
+    # documented as a Sparkov limitation (foreign merchants like Zomato,
+    # Swiggy, BigBasket contribute no signal). We emit a DEBUG log so an
+    # operator can grep to see which lookups are silently missing in
+    # production without turning INFO logs into noise.
 
     def merchant_enc(self, merchant: str) -> float:
-        return self.merchant_te.get(str(merchant), self.global_target_mean)
+        key = str(merchant)
+        if key not in self.merchant_te:
+            log.debug("Sparkov merchant lookup miss → global mean: %r", key)
+        return self.merchant_te.get(key, self.global_target_mean)
 
     def city_enc(self, city: str) -> float:
-        return self.city_te.get(str(city), self.global_target_mean)
+        key = str(city)
+        if key not in self.city_te:
+            log.debug("Sparkov city lookup miss → global mean: %r", key)
+        return self.city_te.get(key, self.global_target_mean)
 
     def job_enc(self, job: str) -> float:
-        return self.job_te.get(str(job), self.global_target_mean)
+        key = str(job)
+        if key not in self.job_te:
+            log.debug("Sparkov job lookup miss → global mean: %r", key)
+        return self.job_te.get(key, self.global_target_mean)
 
     def zip_enc(self, zip_code) -> float:
         try:
-            return self.zip_te.get(int(zip_code), self.global_target_mean)
+            key = int(zip_code)
         except (TypeError, ValueError):
             return self.global_target_mean
+        if key not in self.zip_te:
+            log.debug("Sparkov zip lookup miss → global mean: %r", key)
+        return self.zip_te.get(key, self.global_target_mean)
 
 
 def get_sparkov_lookups() -> SparkovLookups:

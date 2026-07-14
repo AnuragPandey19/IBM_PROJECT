@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import random
+import secrets
 import string
 from datetime import datetime, timezone
 from typing import Optional
@@ -33,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from api.db.models import Company, Prediction, Transaction
 from api.db.session import get_db
+from api.dependencies.rate_limit import rate_limit
 from api.schemas.checkout import (
     CheckoutRequest,
     CheckoutResponse,
@@ -219,13 +221,18 @@ def _resolve_company_id(db: Session, company_slug: Optional[str]) -> int:
 
 
 def _generate_txn_id() -> str:
-    """TXN-<7 alnum> — mimics real payment gateway ids."""
-    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=7))
+    """TXN-<7 alnum> — mimics real payment gateway ids.
+    Uses `secrets` (CSPRNG) so ids are unpredictable — real gateways treat
+    guessable ids as a security bug.
+    """
+    alphabet = string.ascii_uppercase + string.digits
+    suffix = "".join(secrets.choice(alphabet) for _ in range(7))
     return f"TXN-{suffix}"
 
 
 def _generate_auth_code() -> str:
-    return "AUTH-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    alphabet = string.ascii_uppercase + string.digits
+    return "AUTH-" + "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 def _build_sparkov_row(req: CheckoutRequest, profile: dict, hour: int, day_of_week: int) -> pd.DataFrame:
@@ -273,9 +280,14 @@ def _build_sparkov_row(req: CheckoutRequest, profile: dict, hour: int, day_of_we
         "city_pop": int(profile["city_pop"]),
         "lat": float(profile["lat"]),
         "long": float(profile["long"]),
-        "merch_lat": float(profile["lat"]) + 0.5,   # merchant nearby-ish
-        "merch_long": float(profile["long"]) + 0.5,
-        "cust_merch_dist_km": 50.0,
+        # Merchant "coordinates" — kept close to the customer so distance is
+        # small (~5 km). Realistic for typical purchases: someone ordering
+        # groceries from their neighbourhood BigBasket lives 3–10 km away.
+        # The 50 km default that was here previously was pushing every txn
+        # toward the fraud side of the model.
+        "merch_lat": float(profile["lat"]) + 0.05,
+        "merch_long": float(profile["long"]) + 0.05,
+        "cust_merch_dist_km": 5.0,
         "cc_num_txn_count_before": prior_count,
         "cc_num_amt_sum_before": prior_mean * prior_count,
         "cc_num_amt_mean_before": prior_mean,
@@ -315,6 +327,9 @@ def get_profiles():
 def checkout(
     payload: CheckoutRequest,
     db: Session = Depends(get_db),
+    # Public endpoint — no auth. Rate-limit per IP so a burst of requests
+    # can't exhaust the DB pool or trip HF Space's hourly quota.
+    _rl: None = Depends(rate_limit("checkout", per_ip=20, window_s=60)),
 ):
     """Public payment authorization endpoint.
 

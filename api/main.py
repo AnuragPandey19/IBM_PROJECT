@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.requests import Request
 from fastapi.staticfiles import StaticFiles
 
+
 from api.config import get_settings
 from api.db.session import init_db
 from api.routes import analytics, auth, checkout, health, metrics, notifications, predict, predict_sparkov, profile, transactions
@@ -42,11 +43,23 @@ FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend_dist"
 FRONTEND_ENABLED = FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists()
 
 
+_DEFAULT_JWT_SECRET = "change-me-in-prod-please-use-a-long-random-string"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("=" * 60)
     log.info("Starting %s v%s (env=%s)", settings.app_name, settings.app_version, settings.env)
     log.info("=" * 60)
+
+    # Refuse to start in production with the placeholder JWT secret — that
+    # would allow anyone with the source to forge tokens.
+    if settings.env == "prod" and settings.jwt_secret_key == _DEFAULT_JWT_SECRET:
+        raise SystemExit(
+            "FATAL: JWT_SECRET_KEY is still the default placeholder in a "
+            "production environment. Set the JWT_SECRET_KEY env var (or HF "
+            "Space secret) to a long random string before starting."
+        )
     log.info("Database URL: %s", settings.database_url.split("@")[-1])
     log.info("Models directory: %s", settings.models_dir)
     log.info("Frontend static serving: %s (%s)",
@@ -142,13 +155,23 @@ if FRONTEND_ENABLED:
     if _next_dir.exists():
         app.mount("/_next", StaticFiles(directory=str(_next_dir)), name="next_static")
 
+    def _make_public_handler(path: Path):
+        """Explicit factory so each closure captures its own `path` without
+        relying on the default-arg trick that used to live here."""
+        async def _handler(request: Request):
+            return FileResponse(str(path))
+        return _handler
+
     _public_files = ["favicon.ico", "next.svg", "vercel.svg", "file.svg", "globe.svg", "window.svg"]
     for f in _public_files:
         p = FRONTEND_DIST / f
         if p.exists():
-            @app.get(f"/{f}", include_in_schema=False)
-            async def _serve_public(request: Request, _path: Path = p):
-                return FileResponse(str(_path))
+            app.add_api_route(
+                f"/{f}",
+                _make_public_handler(p),
+                methods=["GET"],
+                include_in_schema=False,
+            )
 
     _API_PREFIXES = ("/api", "/auth", "/health", "/ping", "/docs", "/redoc", "/openapi.json")
 

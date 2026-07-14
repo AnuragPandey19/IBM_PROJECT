@@ -4,14 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
+import { saveToken, saveUser, User } from "@/lib/auth";
 
 type RegisterResponse = {
-  id: number;
-  email: string;
-  full_name: string | null;
-  role: string;
-  is_active: boolean;
-  company: { id: number; name: string } | null;
+  access_token: string;
+  token_type: string;
+  expires_in_minutes: number;
+  user: User;
 };
 
 const INDUSTRIES = [
@@ -88,7 +87,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      await api<RegisterResponse>("/auth/register", {
+      const res = await api<RegisterResponse>("/auth/register", {
         method: "POST",
         body: {
           email: email.trim(),
@@ -101,8 +100,12 @@ export default function RegisterPage() {
         },
         auth: false,
       });
+      // Backend returns a JWT — save it and drop the user straight into
+      // the dashboard without re-typing credentials.
+      saveToken(res.access_token);
+      saveUser(res.user);
       setSuccess(true);
-      setTimeout(() => router.push("/login"), 1800);
+      setTimeout(() => router.push("/dashboard"), 1500);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
@@ -129,7 +132,7 @@ export default function RegisterPage() {
           <p className="text-slate-400 mb-2">
             <span className="text-red-400 font-semibold">{companyName}</span> is now set up.
           </p>
-          <p className="text-slate-400">Redirecting to sign in&hellip;</p>
+          <p className="text-slate-400">Signing you in&hellip;</p>
         </div>
       </div>
     );

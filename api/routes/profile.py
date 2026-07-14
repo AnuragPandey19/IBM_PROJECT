@@ -10,23 +10,13 @@ from api.db.models import Company, User
 from api.db.session import get_db
 from api.dependencies.auth import get_current_user, require_admin, require_company
 from api.schemas.auth import CompanyInfo, UserResponse
+from api.schemas.common import serialize_user as _serialize
 from api.schemas.profile import CompanyUpdate, ProfileUpdate
 from api.security import hash_password, verify_password
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["profile"])
-
-
-def _serialize(user: User) -> UserResponse:
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role,
-        is_active=user.is_active,
-        company=(CompanyInfo.model_validate(user.company) if user.company else None),
-    )
 
 
 @router.patch("/profile", response_model=UserResponse)

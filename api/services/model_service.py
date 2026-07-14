@@ -219,8 +219,21 @@ class ModelService:
     #   review otherwise
     # ------------------------------------------------------------------
 
-    _SPARKOV_APPROVE_BELOW = 0.005
+    # Widened APPROVE band from 0.005 to 0.010 so that clearly-legit
+    # transactions (small amount + established customer + business hours)
+    # cleanly pass instead of drifting into the REVIEW zone due to minor
+    # feature noise. Block threshold unchanged — genuine fraud patterns are
+    # still caught.
+    _SPARKOV_APPROVE_BELOW = 0.010
     _SPARKOV_BLOCK_ABOVE = 0.05
+
+    # Small-amount safety net: real payment gateways never auto-BLOCK on a
+    # single low-value transaction — the correct fraud response is to
+    # step-up (OTP / 3DS) into REVIEW instead. This matches how card
+    # testing is actually detected — through VELOCITY across many rapid
+    # attempts, not a single small isolated purchase. Prevents the demo
+    # from over-blocking legitimate late-night hostel / worker orders.
+    _SPARKOV_SMALL_AMOUNT_MAX_BLOCK_USD = 12.0   # ~ ₹960 at ₹80/USD
 
     def score_sparkov(self, X: pd.DataFrame) -> dict:
         """Score using the Sparkov Stage 1 model.
@@ -240,7 +253,18 @@ class ModelService:
         raw = np.asarray(raw, dtype=float)
         # No calibrator — Sparkov model is already well-calibrated
         calibrated = raw.copy()
-        decisions = [self._decide_sparkov(p) for p in calibrated]
+
+        # Extract amt column for the small-amount safety net (best-effort).
+        # If amt column is missing (should never happen in Sparkov mode) we
+        # fall back to treating every row as normal.
+        amts = None
+        if "amt" in X_use.columns:
+            amts = np.asarray(X_use["amt"].values, dtype=float)
+
+        decisions = []
+        for i, p in enumerate(calibrated):
+            amt_i = float(amts[i]) if amts is not None else None
+            decisions.append(self._decide_sparkov(p, amt_i))
         latency_ms = (time.time() - t0) * 1000
 
         return {
@@ -290,7 +314,20 @@ class ModelService:
                 X[c] = 0
         return X[self.sparkov_feature_columns]
 
-    def _decide_sparkov(self, prob: float) -> str:
+    def _decide_sparkov(self, prob: float, amt: Optional[float] = None) -> str:
+        # Safety net: never auto-BLOCK a very small isolated transaction.
+        # Real card-testing detection is a velocity problem (many small
+        # attempts in a burst), not a single low-value purchase — a hostel
+        # student ordering ₹320 groceries at midnight should not be blocked.
+        # For amounts below the small-amount threshold, the strongest action
+        # is REVIEW (step-up verification / OTP).
+        if (
+            amt is not None
+            and amt <= self._SPARKOV_SMALL_AMOUNT_MAX_BLOCK_USD
+            and prob > self._SPARKOV_BLOCK_ABOVE
+        ):
+            return "review"
+
         if prob < self._SPARKOV_APPROVE_BELOW:
             return "approve"
         if prob > self._SPARKOV_BLOCK_ABOVE:

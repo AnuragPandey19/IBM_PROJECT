@@ -2,6 +2,13 @@
 
 Uses bcrypt directly (not via passlib) because passlib 1.7.4 is broken with
 modern bcrypt on Windows.
+
+Note on the 72-byte bcrypt truncation: bcrypt silently truncates inputs
+longer than 72 bytes. Passwords in this codebase are validated by Pydantic
+at `max_length=128` — the truncation is a documented and non-exploitable
+concern for practical passwords. A SHA-256 pre-hash was considered but
+would invalidate every hash already in the DB. Deferred to Future Work
+with a proper migration path.
 """
 from __future__ import annotations
 

@@ -26,6 +26,8 @@ type MetricsSummary = {
   total_predictions: number;
   fraud_count: number;
   fraud_rate: number;
+  model_flagged_count: number;   // review + block (immediate signal from model)
+  model_flagged_rate: number;    // review+block / total_predictions
   decision_counts: DecisionCounts;
   avg_calibrated_score: number | null;
   amount_stats: AmountStats;
@@ -215,10 +217,14 @@ export default function DashboardPage() {
 
       {metrics && !error && (
         <div className="space-y-6 stagger">
-          {/* KPI grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* KPI grid — 5 cards to fit both verified fraud rate and the more
+              actionable model-flagged rate (the latter matters when most
+              transactions are still PENDING and haven't received a
+              chargeback-verified label yet). */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard label="Transactions" value={fmtNum(metrics.total_transactions)} delta={`${fmtNum(metrics.total_predictions)} scored`} />
-            <KpiCard label="Fraud rate" value={fmtPct(metrics.fraud_rate)} delta={`${fmtNum(metrics.fraud_count)} confirmed`} accent />
+            <KpiCard label="Model flagged" value={fmtPct(metrics.model_flagged_rate)} delta={`${fmtNum(metrics.model_flagged_count)} of ${fmtNum(metrics.total_predictions)}`} accent />
+            <KpiCard label="Verified fraud" value={fmtPct(metrics.fraud_rate)} delta={`${fmtNum(metrics.fraud_count)} confirmed`} />
             <KpiCard label="Avg risk" value={fmtScore(metrics.avg_calibrated_score)} delta="Calibrated" />
             <KpiCard label="Volume" value={fmtMoney(metrics.amount_stats.total)} delta={`Avg ${fmtMoney(metrics.amount_stats.avg)}`} />
           </div>

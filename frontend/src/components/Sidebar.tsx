@@ -62,10 +62,16 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const user = getUser();
+  // Two-phase mount to avoid hydration flash. Server render + first client
+  // render are both `collapsed=false` (matches SSR). Only after mount do we
+  // read localStorage and apply the persisted preference. `mounted` gates
+  // rendering so the aria-label / width don't flip mid-frame.
   const [collapsed, setCollapsedState] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setCollapsedState(getSidebarCollapsed());
+    setMounted(true);
     const handler = (e: Event) => {
       setCollapsedState((e as CustomEvent).detail);
     };
@@ -94,9 +100,13 @@ export function Sidebar() {
 
   return (
     <aside
+      // Suppress hydration warning on the outer element only — width is the
+      // one attribute whose SSR value legitimately differs from the
+      // post-mount client value (see two-phase mount comment above).
+      suppressHydrationWarning
       className={`shrink-0 flex flex-col transition-[width] duration-300 ease-out relative`}
       style={{
-        width: collapsed ? "72px" : "260px",
+        width: mounted && collapsed ? "72px" : "260px",
         background: "var(--bg-sidebar)",
         borderRight: "1px solid var(--border-subtle)",
       }}

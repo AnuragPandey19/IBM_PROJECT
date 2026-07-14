@@ -10,7 +10,9 @@ from api.config import get_settings
 from api.db.models import Company, User
 from api.db.session import get_db
 from api.dependencies.auth import get_current_user
+from api.dependencies.rate_limit import rate_limit
 from api.schemas.auth import CompanyInfo, Token, UserCreate, UserLogin, UserResponse
+from api.schemas.common import serialize_user as _serialize_user
 from api.security import create_access_token, hash_password, verify_password
 
 log = logging.getLogger(__name__)
@@ -18,23 +20,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 
-def _serialize_user(user: User) -> UserResponse:
-    """Build UserResponse including embedded company info."""
-    company_info = None
-    if user.company is not None:
-        company_info = CompanyInfo.model_validate(user.company)
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role,
-        is_active=user.is_active,
-        company=company_info,
-    )
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: Session = Depends(get_db)):
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+def register(
+    payload: UserCreate,
+    db: Session = Depends(get_db),
+    # Prevent signup spam.
+    _rl: None = Depends(rate_limit("register", per_ip=5, window_s=600)),
+):
     """Register a new company + its first admin user.
 
     Every public signup creates a fresh company with the caller as its admin.
@@ -92,11 +84,26 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         "Registered new company '%s' (id=%d) with admin %s (id=%d)",
         company.name, company.id, user.email, user.id,
     )
-    return _serialize_user(user)
+
+    # Auto-login: issue the same Token payload as the /login endpoint so the
+    # client can drop the user straight into /dashboard without re-typing
+    # credentials.
+    token = create_access_token(subject=user.id, extra={"role": user.role})
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        expires_in_minutes=settings.jwt_access_token_expire_minutes,
+        user=_serialize_user(user),
+    )
 
 
 @router.post("/login", response_model=Token)
-def login(payload: UserLogin, db: Session = Depends(get_db)):
+def login(
+    payload: UserLogin,
+    db: Session = Depends(get_db),
+    # Anti brute-force: 10 login attempts per IP per 5 minutes.
+    _rl: None = Depends(rate_limit("login", per_ip=10, window_s=300)),
+):
     """Authenticate and return a JWT token."""
     user = db.query(User).filter(User.email == payload.email).first()
     if user is None or not verify_password(payload.password, user.hashed_password):

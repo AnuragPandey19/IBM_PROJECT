@@ -8,7 +8,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from api.schemas.common import iso_utc_z
 
 
 class CheckoutRequest(BaseModel):
@@ -68,6 +70,10 @@ class CheckoutResponse(BaseModel):
     internal_shap_top: list[dict] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at")
+    def _ser_created(self, dt: datetime) -> str:
+        return iso_utc_z(dt) or ""
 
 
 class CustomerProfileInfo(BaseModel):

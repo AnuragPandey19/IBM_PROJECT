@@ -5,8 +5,8 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, desc, func, select
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
@@ -70,15 +70,39 @@ def list_transactions(
 
     q = q.order_by(desc(Transaction.created_at))
     q = q.offset((page - 1) * page_size).limit(page_size)
-    q = q.options(selectinload(Transaction.predictions))
 
     rows = db.execute(q).scalars().all()
 
+    # Fetch the latest prediction per transaction in ONE query rather than
+    # sorting each row's `predictions` list in Python. Uses a correlated
+    # subquery selecting the MAX(created_at) per transaction_id.
+    txn_ids = [t.id for t in rows]
+    latest_pred_by_txn: dict[int, Prediction] = {}
+    if txn_ids:
+        latest_ts_sq = (
+            select(
+                Prediction.transaction_id.label("tid"),
+                func.max(Prediction.created_at).label("mts"),
+            )
+            .where(Prediction.transaction_id.in_(txn_ids))
+            .group_by(Prediction.transaction_id)
+            .subquery()
+        )
+        pred_rows = db.execute(
+            select(Prediction).join(
+                latest_ts_sq,
+                and_(
+                    Prediction.transaction_id == latest_ts_sq.c.tid,
+                    Prediction.created_at == latest_ts_sq.c.mts,
+                ),
+            )
+        ).scalars().all()
+        for p in pred_rows:
+            latest_pred_by_txn[p.transaction_id] = p
+
     items = []
     for txn in rows:
-        latest_pred = None
-        if txn.predictions:
-            latest_pred = sorted(txn.predictions, key=lambda p: p.created_at, reverse=True)[0]
+        latest_pred = latest_pred_by_txn.get(txn.id)
         items.append(TransactionSummary(
             id=txn.id,
             external_id=txn.external_id,

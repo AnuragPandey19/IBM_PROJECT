@@ -389,7 +389,10 @@ def predict_sparkov(
         device_type=None,
         device_info=payload.merchant,
         raw_features=raw_dict,
-        is_fraud=(bool(payload.is_fraud) if payload.is_fraud is not None else None),
+        # SECURITY: Ignore any client-supplied is_fraud. Ground-truth labels
+        # only come from seed_transactions.py or an authenticated /feedback
+        # verdict — never from the public predict endpoint.
+        is_fraud=None,
         company_id=current_user.company_id,
     )
     db.add(txn)

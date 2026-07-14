@@ -22,6 +22,12 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["predict"])
 
+# Chosen so that only payloads which clearly carry pre-engineered feature
+# vectors (e.g. sample rows from test_features.parquet) bypass the live
+# feature pipeline. IEEE-CIS has ~390 engineered features; a legitimate
+# incoming payment from a merchant portal will have <30 raw fields, well
+# under this threshold, and therefore goes through `fs.build()`. 100 is a
+# safe midpoint that never misclassifies either kind of payload.
 _ENGINEERED_OVERLAP_THRESHOLD = 100
 
 _PARQUET_DTYPES: dict[str, Any] = {}
@@ -159,17 +165,22 @@ def predict(
     if not ms.loaded:
         try:
             ms.load()
-        except FileNotFoundError:
-            raise HTTPException(500, "Model artifacts not loaded on this server.")
+        except FileNotFoundError as e:
+            # Distinguish model missing vs pipeline missing so ops can act
+            # on a clear signal instead of a generic 500.
+            raise HTTPException(500, f"Stage 1 model artifact missing: {e}")
 
     raw_dict = payload.as_raw_dict()
 
-    is_fraud_val = raw_dict.get("isFraud")
-    if is_fraud_val is not None:
-        try:
-            is_fraud_val = bool(int(is_fraud_val))
-        except (TypeError, ValueError):
-            is_fraud_val = None
+    # SECURITY: Do NOT trust a client-supplied `isFraud` label — that would
+    # let anyone poison their own tenant's KPIs. Ground-truth labels are
+    # set only by:
+    #   1. seed_transactions.py (which reads verified IEEE-CIS labels)
+    #   2. A future POST /feedback endpoint (analyst review verdict)
+    # Anything the client tried to sneak in via `extras.isFraud` is discarded.
+    raw_dict.pop("isFraud", None)
+    raw_dict.pop("is_fraud", None)
+    is_fraud_val = None
 
     txn = Transaction(
         external_id=payload.external_id,
@@ -200,6 +211,11 @@ def predict(
             X = _build_direct_features(raw_dict, ms.feature_columns)
         else:
             X = fs.build(raw_dict)
+    except FileNotFoundError as e:
+        # Missing feature_pipeline.pkl is a very different failure mode
+        # from the model file being missing — surface it clearly.
+        log.exception("Feature pipeline artifact missing")
+        raise HTTPException(500, f"Feature pipeline artifact missing: {e}")
     except Exception as e:
         log.exception("Feature build failed")
         raise HTTPException(500, f"Feature build failed: {e}")

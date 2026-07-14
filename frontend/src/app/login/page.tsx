@@ -49,7 +49,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="text-xs tracking-widest text-red-500 font-bold mb-2">
-            IBM INTERNSHIP &middot; 2026
+            {process.env.NEXT_PUBLIC_TAGLINE ?? "IBM INTERNSHIP · 2026"}
           </div>
           <h1 className="text-4xl font-serif font-bold text-white mb-2">
             CHIMERA-FD

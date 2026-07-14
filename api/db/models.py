@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Boolean, DateTime
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.db.base import Base, TimestampMixin
@@ -55,8 +55,17 @@ class User(Base, TimestampMixin):
 class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
 
+    # Composite unique constraint: external_id must be unique WITHIN a
+    # tenant, not globally. Two tenants can independently use the same
+    # gateway-issued id format (Razorpay: TXN-123, Zomato: TXN-123 are
+    # legit distinct transactions).
+    __table_args__ = (
+        UniqueConstraint("company_id", "external_id", name="uq_txn_company_external"),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    external_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True)
+    # NOT unique globally — see composite constraint above.
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     transaction_dt: Mapped[Optional[int]] = mapped_column(Integer, index=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     card1: Mapped[Optional[str]] = mapped_column(String(64), index=True)
@@ -94,7 +103,10 @@ class Prediction(Base, TimestampMixin):
     raw_score: Mapped[float] = mapped_column(Float, nullable=False)
     calibrated_score: Mapped[Optional[float]] = mapped_column(Float)
     decision: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
-    model_version: Mapped[str] = mapped_column(String(64), default="stage1_lightgbm_v1")
+    # No default — every caller (predict.py, predict_sparkov.py, checkout.py,
+    # seed_transactions.py) already passes the version explicitly. A stale
+    # hardcoded default would silently mislabel Sparkov predictions.
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
     shap_top: Mapped[Optional[list]] = mapped_column(JSON)
     latency_ms: Mapped[Optional[float]] = mapped_column(Float)
 
@@ -117,13 +129,16 @@ class Feedback(Base, TimestampMixin):
         ForeignKey("predictions.id", ondelete="CASCADE"),
         index=True, nullable=False, unique=True,
     )
-    analyst_id: Mapped[int] = mapped_column(
+    # ondelete=SET NULL is only valid if the column is nullable. Match the
+    # two — analyst_id is now optional so a user deletion leaves the
+    # feedback row historically intact but analystless.
+    analyst_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
-        index=True, nullable=False,
+        index=True, nullable=True,
     )
 
     verdict: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     notes: Mapped[Optional[str]] = mapped_column(String(1024))
 
     prediction: Mapped["Prediction"] = relationship(back_populates="feedback")
-    analyst: Mapped["User"] = relationship(back_populates="feedback_entries")
+    analyst: Mapped[Optional["User"]] = relationship(back_populates="feedback_entries")

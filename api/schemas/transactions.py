@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from api.schemas.common import iso_utc_z
 
 
 class PredictionSummary(BaseModel):
@@ -18,6 +20,10 @@ class PredictionSummary(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at")
+    def _ser_created(self, dt: datetime) -> str:
+        return iso_utc_z(dt) or ""
 
 
 class TransactionSummary(BaseModel):
@@ -38,6 +44,10 @@ class TransactionSummary(BaseModel):
     latest_decision: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at")
+    def _ser_created(self, dt: datetime) -> str:
+        return iso_utc_z(dt) or ""
 
 
 class TransactionDetail(BaseModel):
@@ -61,6 +71,10 @@ class TransactionDetail(BaseModel):
     predictions: list[PredictionSummary] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at")
+    def _ser_created(self, dt: datetime) -> str:
+        return iso_utc_z(dt) or ""
 
 
 class PaginatedTransactions(BaseModel):

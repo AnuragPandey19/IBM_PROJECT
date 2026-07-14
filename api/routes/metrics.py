@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import desc, func, select
+from sqlalchemy import Integer, desc, func, select
 from sqlalchemy.orm import Session
 
 from api.db.models import Prediction, Transaction, User
@@ -30,55 +30,54 @@ def get_summary(
     """Aggregate KPIs for the analyst dashboard, scoped to caller's company."""
     company_id = current_user.company_id
 
-    # ----- Transactions (company-filtered) -----
-    total_txns = db.execute(
-        select(func.count(Transaction.id)).where(Transaction.company_id == company_id)
-    ).scalar_one() or 0
-
-    fraud_count = db.execute(
-        select(func.count(Transaction.id))
+    # ----- Transactions (single aggregate query) -----
+    txn_agg = db.execute(
+        select(
+            func.count(Transaction.id),
+            func.coalesce(func.sum(Transaction.amount), 0.0),
+            func.coalesce(func.avg(Transaction.amount), 0.0),
+            func.coalesce(func.max(Transaction.amount), 0.0),
+            func.coalesce(func.sum(
+                # Portable "bool → int" for counting verified-fraud rows
+                # without a case() when Transaction.is_fraud is nullable.
+                func.cast(Transaction.is_fraud, Integer)
+            ), 0),
+        )
         .where(Transaction.company_id == company_id)
-        .where(Transaction.is_fraud.is_(True))
-    ).scalar_one() or 0
-
+    ).one()
+    total_txns = int(txn_agg[0] or 0)
+    amount_total = float(txn_agg[1] or 0.0)
+    amount_avg = float(txn_agg[2] or 0.0)
+    amount_max = float(txn_agg[3] or 0.0)
+    fraud_count = int(txn_agg[4] or 0)
     fraud_rate = (fraud_count / total_txns) if total_txns else 0.0
 
-    amount_total = db.execute(
-        select(func.coalesce(func.sum(Transaction.amount), 0.0))
-        .where(Transaction.company_id == company_id)
-    ).scalar_one() or 0.0
-    amount_avg = db.execute(
-        select(func.coalesce(func.avg(Transaction.amount), 0.0))
-        .where(Transaction.company_id == company_id)
-    ).scalar_one() or 0.0
-    amount_max = db.execute(
-        select(func.coalesce(func.max(Transaction.amount), 0.0))
-        .where(Transaction.company_id == company_id)
-    ).scalar_one() or 0.0
-
-    # ----- Predictions (company-filtered) -----
-    total_preds = db.execute(
-        select(func.count(Prediction.id)).where(Prediction.company_id == company_id)
-    ).scalar_one() or 0
-
+    # ----- Predictions: decision counts + score avg in one grouped query -----
     decision_rows = db.execute(
-        select(Prediction.decision, func.count(Prediction.id))
+        select(
+            Prediction.decision,
+            func.count(Prediction.id),
+            func.avg(func.coalesce(Prediction.calibrated_score, Prediction.raw_score)),
+        )
         .where(Prediction.company_id == company_id)
         .group_by(Prediction.decision)
     ).all()
     decision_counts = DecisionCounts()
-    for decision, count in decision_rows:
+    total_preds = 0
+    weighted_score_sum = 0.0
+    for decision, count, avg_dec in decision_rows:
+        c = int(count or 0)
+        total_preds += c
+        if avg_dec is not None:
+            weighted_score_sum += float(avg_dec) * c
         if decision == "approve":
-            decision_counts.approve = count
+            decision_counts.approve = c
         elif decision == "review":
-            decision_counts.review = count
+            decision_counts.review = c
         elif decision == "block":
-            decision_counts.block = count
+            decision_counts.block = c
 
-    avg_score = db.execute(
-        select(func.avg(func.coalesce(Prediction.calibrated_score, Prediction.raw_score)))
-        .where(Prediction.company_id == company_id)
-    ).scalar_one()
+    avg_score = (weighted_score_sum / total_preds) if total_preds else None
 
     latest_version = db.execute(
         select(Prediction.model_version)
@@ -112,11 +111,19 @@ def get_summary(
         for p, t in risky_rows
     ]
 
+    # Model-flagged rate — reflects what the model routed to review or block.
+    # This is the meaningful KPI when most transactions are still PENDING
+    # (ground-truth label only arrives on chargeback 30–60 days later).
+    model_flagged_count = decision_counts.review + decision_counts.block
+    model_flagged_rate = (model_flagged_count / total_preds) if total_preds else 0.0
+
     return MetricsSummary(
         total_transactions=total_txns,
         total_predictions=total_preds,
         fraud_count=fraud_count,
         fraud_rate=fraud_rate,
+        model_flagged_count=model_flagged_count,
+        model_flagged_rate=model_flagged_rate,
         decision_counts=decision_counts,
         avg_calibrated_score=float(avg_score) if avg_score is not None else None,
         amount_stats=AmountStats(

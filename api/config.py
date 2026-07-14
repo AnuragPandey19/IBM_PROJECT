@@ -34,9 +34,14 @@ class Settings(BaseSettings):
         description="SQLAlchemy connection string. Use postgresql://user:pass@host/db in prod.",
     )
 
-    # ---- Redis (velocity cache) ----
+    # ---- Redis (velocity cache) — STUB SETTINGS ----
+    # These are declared so the roadmap change ("move per-card velocity
+    # features into a Redis cache") doesn't need a schema migration. Right
+    # now nothing reads them; velocity features are computed in-process by
+    # `add_velocity_features()`. Left here intentionally as a hook for
+    # future work.
     redis_url: str = "redis://localhost:6379/0"
-    redis_enabled: bool = False   # Set true when Redis is available
+    redis_enabled: bool = False
 
     # ---- Model artifacts ----
     models_dir: Path = PROJECT_ROOT / "models"

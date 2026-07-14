@@ -1,0 +1,58 @@
+# CHIMERA-FD test case agent — configuration
+#
+# Copy this file to `scripts/agent_config.<yourname>.yaml` and edit it,
+# then run:
+#   python scripts/test_case_agent.py --config scripts/agent_config.<yourname>.yaml
+
+# Your name — used to name the output file: tests/authored/<author>.jsonl
+author: anurag
+
+# ---- LLM provider ----
+# Pick one: openai | anthropic | gemini | groq | ollama
+provider: gemini
+
+# Model name — depends on the provider
+#   openai     → gpt-4o-mini, gpt-4o
+#   anthropic  → claude-3-5-sonnet-latest, claude-3-5-haiku-latest
+#   gemini     → gemini-2.5-flash, gemini-2.5-pro
+#   groq       → llama-3.3-70b-versatile, llama-3.1-8b-instant
+#   ollama     → llama3.1:8b, qwen2.5:7b, deepseek-r1:7b
+model: gemini-2.5-flash
+
+# LLM temperature — higher = more variety, lower = more consistent
+# 0.8 is a good starting point for creative test case generation
+temperature: 0.8
+
+# ---- Target coverage ----
+# How many cases per typology you want. The agent stops when every
+# typology has met its target. Total = sum of all values below.
+target_counts:
+  # ── Fraud typologies (label = "fraud") ──
+  late_night_bulk_fraud: 8       # big amount + odd hour + new customer
+  card_testing: 5                # tiny amount + new customer, verifying stolen card
+  cross_category_fraud: 4        # customer buys wildly outside pattern
+  velocity_spike: 5              # established customer 20-50x their avg
+  weekend_spike: 3               # fraud running at weekend odd hours
+
+  # ── Legit typologies (label = "legit") ──
+  routine_grocery: 8             # small amount + business hours + established
+  corporate_lunch: 5             # medium amount + business hours + high spender
+  wedding_order: 5               # big amount + business hours + high spender
+  late_night_hostel: 4           # EDGE: small amount + night hour + established/senior
+  senior_routine: 4              # small amount + business hours + senior
+  fuel_purchase: 3               # small-medium + any hour + established + gas
+  high_value_regular: 3          # large amount + business hours + high spender
+
+# ---- Iteration control ----
+batch_size: 10                   # cases per LLM call
+max_iterations: 20               # safety valve; usually finishes in ~7-10
+
+# ---- Live validation ----
+# If true, each generated case is POSTed to /api/checkout and only kept
+# if the backend returns a 2xx (payload is well-formed). Slower but
+# higher quality — recommended.
+validate_live: true
+backend_url: http://localhost:8000
+
+# ---- Output ----
+output_dir: tests/authored       # relative to project root

@@ -39,15 +39,21 @@ class FeatureService:
         return self
 
     def build(self, raw: dict[str, Any]) -> pd.DataFrame:
-        """Take a raw transaction dict, return a single-row engineered DataFrame."""
+        """Take a raw transaction dict, return a single-row engineered DataFrame.
+
+        Strips any `isFraud` value the client may have tried to sneak in
+        (defense-in-depth in addition to the check in the /predict route).
+        """
         if not self.loaded:
             self.load()
+        # SECURITY: never let a client-supplied label reach the pipeline.
+        raw = {k: v for k, v in raw.items() if k not in ("isFraud", "is_fraud")}
         df = pd.DataFrame([raw])
         # Feature pipeline expects TransactionDT to be numeric
         if "TransactionDT" not in df.columns:
             df["TransactionDT"] = 0
-        # Ensure isFraud column exists (pipeline may reference it during training-mode transforms;
-        # here it's ignored at inference — filled with a placeholder)
+        # Pipeline references isFraud only during .fit(); at inference the
+        # value is unused. Placeholder 0 is safe.
         if "isFraud" not in df.columns:
             df["isFraud"] = 0
         return self.pipeline.transform(df)

@@ -46,9 +46,10 @@ echo.
 REM ---- Push to Hugging Face (deployment) ----
 echo [3/4] Pushing to Hugging Face (hf)...
 git push hf main
-if errorlevel 1 (
+set "HF_RC=%errorlevel%"
+if not "%HF_RC%"=="0" (
     echo.
-    echo [WARNING] HF push failed. Continuing to GitHub anyway.
+    echo [WARNING] HF push exit code %HF_RC%. Continuing to GitHub anyway.
     echo   Common causes:
     echo   - Auth issue          -^> refresh HF token
     echo   - Large file blocked  -^> check Git LFS
@@ -63,9 +64,10 @@ echo.
 REM ---- Push to GitHub (team sharing) ----
 echo [4/4] Pushing to GitHub (github)...
 git push github main
-if errorlevel 1 (
+set "GH_RC=%errorlevel%"
+if not "%GH_RC%"=="0" (
     echo.
-    echo [WARNING] GitHub push failed. Common causes:
+    echo [WARNING] GitHub push exit code %GH_RC%. Common causes:
     echo   - Remote not added    -^> git remote add github ^<url^>
     echo   - No upstream branch  -^> git push -u github main (first time)
     echo   - Timeout on big push -^> git config --global http.postBuffer 524288000

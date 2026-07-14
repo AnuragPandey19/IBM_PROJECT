@@ -90,6 +90,10 @@ def readiness_check(
     checks["stage1_model"] = "ok" if cfg.stage1_model_path.exists() else "missing"
     checks["stage3_calibrator"] = "ok" if cfg.stage3_calibrator_path.exists() else "missing"
     checks["feature_pipeline"] = "ok" if cfg.feature_pipeline_path.exists() else "missing"
+    # Sparkov mode powers merchant portals + /api/checkout — treat as
+    # first-class readiness signal, not an afterthought.
+    checks["stage1_sparkov"] = "ok" if cfg.stage1_sparkov_path.exists() else "missing"
+    checks["sparkov_features"] = "ok" if cfg.sparkov_features_path.exists() else "missing"
 
     ok = all(v == "ok" for v in checks.values())
     return {

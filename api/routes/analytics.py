@@ -69,7 +69,9 @@ def get_timeseries(
     to keep the code portable across SQLite (dev) and PostgreSQL (prod).
     """
     company_id = current_user.company_id
-    now = datetime.now(timezone.utc)
+    # tz-naive UTC to stay compatible with SQLite's tz-naive Transaction/
+    # Prediction.created_at columns. Postgres tolerates both.
+    now = datetime.utcnow()
 
     # Prepare bucket keys covering the requested window
     bucket_keys: list[tuple[str, datetime]] = []
@@ -78,7 +80,7 @@ def get_timeseries(
         y, m = now.year, now.month
         for _ in range(limit):
             key = f"{y:04d}-{m:02d}"
-            bucket_start = datetime(y, m, 1, tzinfo=timezone.utc)
+            bucket_start = datetime(y, m, 1)
             bucket_keys.append((key, bucket_start))
             m -= 1
             if m == 0:
@@ -91,7 +93,7 @@ def get_timeseries(
         y = now.year
         for _ in range(limit):
             key = f"{y:04d}"
-            bucket_start = datetime(y, 1, 1, tzinfo=timezone.utc)
+            bucket_start = datetime(y, 1, 1)
             bucket_keys.append((key, bucket_start))
             y -= 1
         bucket_keys.reverse()
