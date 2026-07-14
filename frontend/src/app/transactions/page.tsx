@@ -110,12 +110,6 @@ function fmtWhen(iso: string | null | undefined): { primary: string; full: strin
 const IEEE_PRODUCT_CD: Record<string, string> = {
   "1": "C", "2": "H", "3": "R", "4": "S", "5": "W",
 };
-const IEEE_CARD4: Record<string, string> = {
-  "1": "amex", "2": "discover", "3": "mastercard", "4": "visa",
-};
-const IEEE_CARD6: Record<string, string> = {
-  "1": "charge", "2": "credit", "3": "debit", "4": "debit or credit",
-};
 const IEEE_DEVICE_TYPE: Record<string, string> = {
   "1": "unknown", "2": "desktop", "3": "mobile",
 };

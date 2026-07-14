@@ -45,13 +45,6 @@ type SamplesResponse = {
   pool_sizes: { fraud: number; legit: number };
 };
 
-const CORE_FORM_FIELDS = [
-  "TransactionAmt", "ProductCD", "TransactionDT",
-  "card1", "card4", "card6",
-  "addr1", "P_emaildomain",
-  "DeviceType", "DeviceInfo",
-] as const;
-
 function rowToForm(row: SampleRow): FormState {
   const s = (k: string) => {
     const v = row[k];
@@ -106,14 +99,6 @@ const EMPTY: FormState = {
 
 // -------- Helpers --------
 const fmtScore = (n: number | null) => (n === null ? "-" : n.toFixed(4));
-const fmtMoney = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
-
-function decisionColor(d: string): string {
-  if (d === "block") return "text-red-400 bg-red-500/10 border-red-500/30";
-  if (d === "review") return "text-amber-400 bg-amber-500/10 border-amber-500/30";
-  return "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-}
 
 // -------- Page --------
 export default function PredictPage() {
@@ -531,7 +516,6 @@ function EmptyState() {
 function ResultPanel({ result }: { result: PredictionResponse }) {
   const isBlock = result.decision === "block";
   const isReview = result.decision === "review";
-  const isApprove = result.decision === "approve";
   const border = isBlock ? "border-red-500/50" : isReview ? "border-amber-500/50" : "border-emerald-500/50";
   const glow = isBlock ? "shadow-red-500/20" : isReview ? "shadow-amber-500/20" : "shadow-emerald-500/20";
 

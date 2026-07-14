@@ -125,8 +125,6 @@ const EMPTY_FORM: FormState = {
 
 // -------- Helpers --------
 const fmtScore = (n: number | null) => (n === null ? "-" : n.toFixed(4));
-const fmtMoney = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 
 function decisionColor(d: string): string {
   if (d === "block") return "text-red-400 bg-red-500/10 border-red-500/30";
