@@ -129,12 +129,16 @@ app.add_middleware(RequestIdMiddleware)
 
 # ---- Security headers ----------------------------------------------------
 # Applied to every response. Cheap, no-dependency middleware — protects against
-# common browser-level attacks (clickjacking, MIME-sniffing, referrer leakage).
+# common browser-level attacks (MIME-sniffing, referrer leakage, camera abuse).
+#
+# NOTE on X-Frame-Options: we deliberately DO NOT set `DENY` here. Hugging Face
+# Spaces renders every Space inside an iframe hosted on huggingface.co — a hard
+# DENY makes the Space appear as a blank page in the HF UI even though the
+# container is healthy. We use a CSP `frame-ancestors` clause instead, which
+# lets us allow HF while still blocking arbitrary third-party embedding.
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
-    # Deny embedding in iframes on other origins (clickjacking).
-    response.headers.setdefault("X-Frame-Options", "DENY")
     # Prevent browsers from MIME-sniffing content type.
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     # Don't leak the referring URL when navigating to third parties.
@@ -144,12 +148,20 @@ async def _security_headers(request: Request, call_next):
         "Permissions-Policy",
         "camera=(), microphone=(), geolocation=(), payment=()"
     )
-    # Only serve JSON with the correct content type — belt & suspenders.
     if request.url.path.startswith("/api"):
-        # Basic CSP for API — no scripts or frames at all.
+        # For API responses only: strict CSP + hard X-Frame-Options. Nobody
+        # should ever be iframing our JSON endpoints anyway.
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'none'; frame-ancestors 'none'"
+        )
+        response.headers.setdefault("X-Frame-Options", "DENY")
+    else:
+        # HTML pages: allow embedding from same origin AND from Hugging Face
+        # (so the HF Space UI iframe can render us). Everything else blocked.
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "frame-ancestors 'self' https://huggingface.co https://*.huggingface.co https://*.hf.space"
         )
     return response
 
