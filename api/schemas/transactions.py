@@ -17,6 +17,9 @@ class PredictionSummary(BaseModel):
     model_version: str
     latency_ms: Optional[float] = None
     shap_top: Optional[list[dict]] = None
+    # V4 addition: which safety-net rules fired (None or empty = pure model
+    # decision, no augmenter override). See api/services/decision_augmenter.py
+    rules_triggered: Optional[list[str]] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,6 +45,8 @@ class TransactionSummary(BaseModel):
     # Latest prediction (if any)
     latest_score: Optional[float] = None
     latest_decision: Optional[str] = None
+    # V4 addition: augmenter rule IDs that fired on the latest prediction
+    latest_rules_triggered: Optional[list[str]] = None
 
     model_config = ConfigDict(from_attributes=True)
 

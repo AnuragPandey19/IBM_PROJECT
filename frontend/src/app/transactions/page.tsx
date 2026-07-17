@@ -21,6 +21,9 @@ type TxnSummary = {
   created_at: string;
   latest_score: number | null;
   latest_decision: string | null;
+  // V4 addition: which safety-net rules from decision_augmenter fired
+  // on the latest prediction. Empty/null = pure-model decision.
+  latest_rules_triggered: string[] | null;
 };
 
 type PaginatedTxns = {
@@ -435,12 +438,33 @@ function TxnTable({ rows }: { rows: TxnSummary[] }) {
                 <td className="px-4 py-3 text-right tabular-nums font-medium" style={{ color: "var(--text-primary)" }}>{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-3 text-right font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>{fmtScore(r.latest_score)}</td>
                 <td className="px-4 py-3">
-                  <span
-                    className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider"
-                    style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.text }}
-                  >
-                    {r.latest_decision ?? "none"}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span
+                      className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider"
+                      style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.text }}
+                    >
+                      {r.latest_decision ?? "none"}
+                    </span>
+                    {/* Safety-net augmenter rule badges. If present, the
+                        decision was tightened from approve -> review by
+                        one of the post-model rules (card_testing,
+                        velocity_spike, evening_new_high). Analyst can
+                        immediately see which rule fired. */}
+                    {r.latest_rules_triggered?.map((rid) => (
+                      <span
+                        key={rid}
+                        title={`Safety-net rule fired: ${rid}`}
+                        className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono uppercase tracking-wide"
+                        style={{
+                          background: "rgba(245, 158, 11, 0.10)",
+                          border: "1px solid rgba(245, 158, 11, 0.35)",
+                          color: "rgb(245, 158, 11)",
+                        }}
+                      >
+                        rule:{rid.split("_")[0]}
+                      </span>
+                    ))}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>
                   {(() => {

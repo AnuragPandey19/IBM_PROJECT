@@ -109,6 +109,12 @@ class Prediction(Base, TimestampMixin):
     model_version: Mapped[str] = mapped_column(String(64), nullable=False)
     shap_top: Mapped[Optional[list]] = mapped_column(JSON)
     latency_ms: Mapped[Optional[float]] = mapped_column(Float)
+    # V4 model-audit addition: which decision_augmenter rules fired for
+    # this prediction (empty list / NULL if pure model decision). Populated
+    # from api.services.decision_augmenter.apply_safety_nets(). Enables
+    # analytics on per-rule fire rate + analyst dashboard visibility of
+    # augmenter-driven vs pure-model decisions.
+    rules_triggered: Mapped[Optional[list]] = mapped_column(JSON, default=None)
 
     # Multi-tenancy: denormalized from transaction for faster company-scoped queries
     company_id: Mapped[Optional[int]] = mapped_column(

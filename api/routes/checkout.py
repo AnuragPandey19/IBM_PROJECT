@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from api.db.models import Company, Prediction, Transaction
 from api.db.session import get_db
 from api.dependencies.rate_limit import rate_limit
+from api.services.decision_augmenter import apply_safety_nets
 from api.schemas.checkout import (
     CheckoutRequest,
     CheckoutResponse,
@@ -257,6 +258,15 @@ def _build_sparkov_row(req: CheckoutRequest, profile: dict, hour: int, day_of_we
 
     prior_mean = float(profile["avg_past_amt"])
     prior_count = int(profile["prior_transaction_count"])
+    # KNOWN INFERENCE/TRAINING DISTRIBUTION MISMATCH (see MODEL_AUDIT
+    # POST_TESTING B-3): for demo_profile == "new", prior_mean is 0 and
+    # prior_count is 0, so amt_ratio always falls back to 1.0 regardless
+    # of the amount. The trained model sees a constant 1.0 for this
+    # feature on every new-customer transaction, which is a real
+    # train/inference distribution mismatch. Behavioural consequence:
+    # velocity-based rules cannot fire for new customers via the model
+    # itself; the API layer's decision_augmenter.evening_new_high_amount
+    # rule is the intended safety net for that segment.
     amt_ratio = amt / prior_mean if prior_mean > 0 and prior_count > 0 else 1.0
 
     seconds_since_prev = profile.get("seconds_since_prev", float("nan"))
@@ -276,6 +286,13 @@ def _build_sparkov_row(req: CheckoutRequest, profile: dict, hour: int, day_of_we
         "is_night": int(hour < 6),
         "unix_time": int(datetime.now().timestamp()),
         "cust_age": int(profile["cust_age"]),
+        # KNOWN INFERENCE-TIME LIMITATION (see MODEL_AUDIT B-4):
+        # demo_profile keys onto exactly 4 fixed cards, so cc_num takes
+        # exactly 4 unique values across ALL demo checkout traffic. This
+        # is a much narrower distribution than training. cc_num is not in
+        # the model's top-15 features (per sparkov_feature_importance.csv)
+        # so the impact is empirically small, but we should never assume
+        # cc_num-derived features carry signal in demo mode.
         "cc_num": int(profile["card_number_full"][:12]),  # first 12 digits
         "city_pop": int(profile["city_pop"]),
         "lat": float(profile["lat"]),
@@ -366,8 +383,24 @@ def checkout(
     shap_top = ms.shap_sparkov(X, top_k=5)[0]
 
     risk_score = float(result["calibrated_scores"][0])
-    decision = result["decisions"][0]      # 'approve' | 'review' | 'block'
+    raw_decision = result["decisions"][0]  # 'approve' | 'review' | 'block'
     latency_ms = float(result["latency_ms"])
+
+    # ---- Decision augmenter (safety nets) ----------------------------
+    # Post-model rules that close the three known blind spots identified
+    # by V1+V2+V3 testing (card_testing, velocity_spike, evening new-high).
+    # SAME function is called by predict_sparkov + the direct-model runner,
+    # so decisions are consistent across every environment.
+    payload_dict = payload.model_dump()
+    decision, rules_triggered = apply_safety_nets(
+        payload=payload_dict,
+        profile=profile,
+        raw_decision=raw_decision,
+        cal_score=risk_score,
+    )
+    if rules_triggered:
+        log.info("safety-net rules fired: %s (raw=%s -> final=%s)",
+                 rules_triggered, raw_decision, decision)
 
     # Route to the merchant's own company (if slug provided) or the SecureBuy
     # standalone demo company by default.
@@ -413,6 +446,7 @@ def checkout(
         shap_top=shap_top,
         latency_ms=latency_ms,
         company_id=company_id,
+        rules_triggered=rules_triggered or None,
     )
     db.add(pred)
     db.commit()

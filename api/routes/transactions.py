@@ -119,6 +119,10 @@ def list_transactions(
                 else latest_pred.raw_score if latest_pred else None
             ),
             latest_decision=latest_pred.decision if latest_pred else None,
+            latest_rules_triggered=(
+                latest_pred.rules_triggered
+                if latest_pred and latest_pred.rules_triggered else None
+            ),
         ))
 
     return PaginatedTransactions(

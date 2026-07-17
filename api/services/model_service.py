@@ -112,6 +112,15 @@ class ModelService:
             log.info("Warming up Sparkov model with dummy prediction...")
             dummy_sp = pd.DataFrame([{c: 0.0 for c in self.sparkov_feature_columns}])
             _ = self.score_sparkov(dummy_sp)
+            # Advertise the demo-mode inference limitations documented in
+            # MODEL_AUDIT_POST_TESTING B-3 + B-4 so operators reading the
+            # startup log know demo traffic uses a narrow feature
+            # distribution vs training.
+            log.info("Sparkov demo-mode note: demo_profile keys onto 4 fixed "
+                     "customer profiles + 4 fixed cc_num values. Real merchant "
+                     "traffic through /api/checkout should populate demo_profile "
+                     "= 'new' or match a card_last4 to get realistic scoring. "
+                     "See MODEL_AUDIT_POST_TESTING.md B-3, B-4.")
         log.info("Warmup complete.")
 
     def score(self, X: pd.DataFrame) -> dict:
@@ -219,13 +228,20 @@ class ModelService:
     #   review otherwise
     # ------------------------------------------------------------------
 
-    # Widened APPROVE band from 0.005 to 0.010 so that clearly-legit
-    # transactions (small amount + established customer + business hours)
-    # cleanly pass instead of drifting into the REVIEW zone due to minor
-    # feature noise. Block threshold unchanged — genuine fraud patterns are
-    # still caught.
-    _SPARKOV_APPROVE_BELOW = 0.010
-    _SPARKOV_BLOCK_ABOVE = 0.05
+    # Threshold history:
+    #   v1 (pre-augmentation):  approve<0.005  block>0.010
+    #   v2 (Round 2 widening):  approve<0.010  block>0.050
+    #   v3 (post-augmentation): approve<0.050  block>0.300
+    #
+    # After augmented retrain (val PR-AUC 0.82, test PR-AUC 0.81), the raw
+    # score distribution has spread out substantially — best-threshold
+    # picked on val jumped from 0.012 to 0.193. Old thresholds were
+    # tuned for the compressed distribution of the previous model and
+    # now over-block legit customers (wedding_order 17.6% block,
+    # high_value_regular 35.7% block on augmented eval).
+    # New thresholds: match val-chosen best threshold band.
+    _SPARKOV_APPROVE_BELOW = 0.050
+    _SPARKOV_BLOCK_ABOVE = 0.300
 
     # Small-amount safety net: real payment gateways never auto-BLOCK on a
     # single low-value transaction — the correct fraud response is to

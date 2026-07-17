@@ -58,6 +58,26 @@ class Settings(BaseSettings):
     block_above: float = 0.95        # P > 0.95 -> auto-block
     default_threshold: float = 0.40  # For binary decision if no calibration
 
+    # ---- Safety-net rules (decision augmenter) --------------------------
+    # Post-model rules that patch known blind spots identified by V1+V2+V3
+    # testing. Each rule is independently toggleable via env var so ops can
+    # disable a misbehaving rule without a code change. See
+    # api/services/decision_augmenter.py for the rule bodies and
+    # MODEL_AUDIT_POST_TESTING.md for the empirical justification.
+    enable_safety_net_card_testing: bool = True     # push tiny-amount
+                                                     # new-customer misc
+                                                     # transactions -> review
+    enable_safety_net_velocity_spike: bool = True   # push established-customer
+                                                     # sudden-large-spend -> review
+    enable_safety_net_night_new_high: bool = True   # push new-customer
+                                                     # evening high-amount -> review
+
+    # Thresholds for the rules — expose so they can be tuned via env vars
+    # in production once real fraud statistics are available.
+    safety_net_card_testing_max_amount: float = 10.0
+    safety_net_velocity_spike_ratio: float = 5.0
+    safety_net_night_new_high_min_amount: float = 1000.0
+
     # ---- Auth ----
     jwt_secret_key: str = "change-me-in-prod-please-use-a-long-random-string"
     jwt_algorithm: str = "HS256"

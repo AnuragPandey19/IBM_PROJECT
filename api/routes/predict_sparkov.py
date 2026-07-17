@@ -29,6 +29,7 @@ from api.db.models import Prediction, Transaction, User
 from api.db.session import get_db
 from api.dependencies.auth import require_company
 from api.dependencies.rate_limit import rate_limit
+from api.services.decision_augmenter import apply_safety_nets
 from api.schemas.predict import PredictionResponse, ShapContribution
 from api.schemas.predict_sparkov import (
     SparkovLookupResponse,
@@ -408,8 +409,37 @@ def predict_sparkov(
 
     raw_score = float(result["raw_scores"][0])
     calibrated = float(result["calibrated_scores"][0])
-    decision = result["decisions"][0]
+    raw_decision = result["decisions"][0]
     latency_ms = float(result["latency_ms"])
+
+    # ---- Decision augmenter --------------------------------------------
+    # Sparkov analyst-facing endpoint accepts raw sparkov fields (not the
+    # demo_profile-based checkout payload). We adapt the payload dict so
+    # the augmenter can still fire whichever rules are applicable. Rules
+    # that require demo_profile ("new", "established" etc.) will simply
+    # not fire on this endpoint — which is correct because analysts here
+    # are examining specific transactions, not synthetic profiles.
+    # Velocity_spike CAN still fire if the caller provided prior mean.
+    augmenter_payload = {
+        "amount": payload.amt,
+        "merchant_category": payload.category,
+        "demo_hour_override": payload.hour,
+        # No demo_profile key — Rule 1 + Rule 3 skip. Rule 2 falls back
+        # to profile=None path.
+    }
+    augmenter_profile = None
+    if payload.cc_num_amt_mean_before and payload.cc_num_amt_mean_before > 0:
+        # Synthesize a minimal "profile" object so velocity_spike can fire.
+        augmenter_profile = {"avg_past_amt": float(payload.cc_num_amt_mean_before)}
+    decision, rules_triggered = apply_safety_nets(
+        payload=augmenter_payload,
+        profile=augmenter_profile,
+        raw_decision=raw_decision,
+        cal_score=calibrated,
+    )
+    if rules_triggered:
+        log.info("safety-net rules fired on predict_sparkov: %s (raw=%s -> final=%s)",
+                 rules_triggered, raw_decision, decision)
 
     pred = Prediction(
         transaction_id=txn.id,
@@ -420,6 +450,7 @@ def predict_sparkov(
         shap_top=shap_top,
         latency_ms=latency_ms,
         company_id=current_user.company_id,
+        rules_triggered=rules_triggered or None,
     )
     db.add(pred)
     db.commit()
