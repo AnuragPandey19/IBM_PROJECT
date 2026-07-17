@@ -1,4 +1,16 @@
-# Data — NEVER commit real transaction data
+# =============================================================================
+# CHIMERA-FD .gitignore
+# =============================================================================
+# Layout after the July 2026 reorg:
+#   evaluation/       — labeled test cases + runner outputs (all local, never push)
+#   docs/             — mentor-facing docs (large binaries local-only, .md tracked)
+#   docs/archive/     — superseded doc versions (kept locally, blocked from git)
+#   data/, models/    — datasets + trained artifacts (whitelist-only what serves)
+# =============================================================================
+
+
+# --- Data ---------------------------------------------------------------------
+# NEVER commit real transaction data
 data/raw/*
 data/processed/*
 data/external/*
@@ -15,7 +27,9 @@ data/processed/ieee_cis/*
 !data/processed/ieee_cis/feature_pipeline.pkl
 !data/processed/ieee_cis/samples.parquet
 
-# Model artifacts — block all files inside models/, whitelist serving ones.
+
+# --- Model artifacts ----------------------------------------------------------
+# Block all files inside models/, then whitelist the serving ones.
 # Note: use "models/*" NOT "models/" — git cannot re-include from an excluded dir.
 models/*
 *.pkl
@@ -25,16 +39,47 @@ models/*
 *.onnx
 !models/stage1_lightgbm.pkl
 !models/stage3_isotonic.pkl
+!models/stage1_sparkov.pkl
 
-# Dev-only reports (large images, arrays)
+# Sparkov artifacts needed for backend startup.
+# Same pattern as ieee_cis above: whitelist the folder to allow recursion,
+# then explicitly BLOCK ALL contents, then whitelist only the file the
+# backend actually needs (test_features.parquet drives SparkovLookups).
+# Without the block-all-contents line, train_features.parquet (156 MB) and
+# val_features.parquet (22 MB) would be committed too, bloating the repo
+# and blowing past HF Space LFS bandwidth on rebuilds.
+!data/processed/sparkov/
+data/processed/sparkov/*
+!data/processed/sparkov/test_features.parquet
+
+
+# --- Evaluation artifacts (test cases, results, console captures) -------------
+# The entire evaluation/ tree is local-only. It contains 250+ MB of labeled
+# test cases + result JSONL from teammate-authored payloads (Gurnoor, Pankaj)
+# and the runner (scripts/run_labeled_test_cases_direct.py). Pushed once by
+# mistake — blew HF Space storage. Now: never commit anything under here.
+evaluation/
+
+
+# --- Documents ----------------------------------------------------------------
+# Word/PDF deliverables live in docs/ but are large + regenerable — mentor
+# gets them via direct file share, not the repo. Markdown docs in docs/
+# stay tracked (small, review-friendly). docs/archive/ is fully blocked.
+docs/*.docx
+docs/*.pdf
+docs/archive/
+
+# Repo-root docx/pdf (should be empty after reorg, safety net for accidents)
+*.docx
+*.pdf
+
+
+# --- Reports ------------------------------------------------------------------
+# Dev-only reports (large images, arrays); regenerable from notebooks
 reports/
 
-# Notebooks — commit clean, not outputs
-.ipynb_checkpoints/
-# Uncomment next line if you want to strip outputs before commit:
-# *.ipynb
 
-# Python
+# --- Python -------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -46,50 +91,45 @@ dist/
 .coverage
 htmlcov/
 
-# Virtual envs
+
+# --- Virtual envs -------------------------------------------------------------
 .venv/
 venv/
 env/
 
-# Node / Next.js (frontend build artifacts)
+
+# --- Node / Next.js (frontend build artifacts) --------------------------------
 frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.turbo/
 
-# IDEs
+
+# --- Notebooks ----------------------------------------------------------------
+# Commit clean notebooks, not outputs
+.ipynb_checkpoints/
+# Uncomment next line if you want to strip outputs before commit:
+# *.ipynb
+
+
+# --- IDEs / OS ----------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
 .DS_Store
 
-# Logs
+
+# --- Logs ---------------------------------------------------------------------
 logs/
 *.log
 
-# Secrets
+
+# --- Secrets ------------------------------------------------------------------
 .env
 .env.local
 frontend/.env.local
 config/secrets.yaml
 
-# Docker
+
+# --- Docker -------------------------------------------------------------------
 docker-compose.override.yml
-
-# Reports (bhaari + regenerable)
-*.docx
-*.pdf
-reports/
-
-
-# Sparkov artifacts needed for backend startup.
-# Same pattern as ieee_cis above: whitelist the folder to allow recursion,
-# then explicitly BLOCK ALL contents, then whitelist only the file the
-# backend actually needs (test_features.parquet drives SparkovLookups).
-# Without the block-all-contents line, train_features.parquet (156 MB) and
-# val_features.parquet (22 MB) would be committed too, bloating the repo
-# and blowing past HF Space LFS bandwidth on rebuilds.
-!models/stage1_sparkov.pkl
-!data/processed/sparkov/
-data/processed/sparkov/*
-!data/processed/sparkov/test_features.parquet

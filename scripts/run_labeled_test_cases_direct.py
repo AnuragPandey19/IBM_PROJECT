@@ -28,7 +28,7 @@ JSONL and used AFTER scoring to compute correctness — never before.
 USAGE
 -----
     python scripts/run_labeled_test_cases_direct.py \
-        --input "test cases_v1_by_Gurnoor.labeled.jsonl"
+        --input "evaluation/test_cases/test cases_v1_by_Gurnoor.labeled.jsonl"
 
     # Optional:
     #   --limit 20        # first N rows only

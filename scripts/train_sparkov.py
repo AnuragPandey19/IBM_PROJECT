@@ -242,13 +242,14 @@ def _run_typology_stress_eval(trainer, feat_cols: list[str], root: Path, log) ->
     """Score the freshly-trained model on a labeled per-typology test set
     and produce a per-typology recall + PR-AUC breakdown.
 
-    Reads from `test_cases_v1_by_pankaj.labeled.jsonl` (150K rows) if
-    present. Falls back to the smaller Gurnoor v1/v2 files. Returns None
-    if none of the labeled files exist.
+    Reads from `evaluation/test_cases/test_cases_v1_by_pankaj.labeled.jsonl`
+    (150K rows) if present. Falls back to the smaller Gurnoor v1/v2 files.
+    Returns None if none of the labeled files exist. Also checks the repo
+    root as a legacy fallback (older layout before the evaluation/ reorg).
 
     Output shape:
         {
-          "source_file": "test_cases_v1_by_pankaj.labeled.jsonl",
+          "source_file": "evaluation/test_cases/test_cases_v1_by_pankaj.labeled.jsonl",
           "total_rows": 150000,
           "per_typology": {
             "card_testing":   {"total": 11715, "positive_predictions": ..., "recall": ...},
@@ -259,7 +260,14 @@ def _run_typology_stress_eval(trainer, feat_cols: list[str], root: Path, log) ->
     import json as _json
 
     # Search order: prefer largest, most-recently-authored labeled set.
+    # New home is evaluation/test_cases/; keep root fallbacks for backward
+    # compatibility with older checkouts (delete once everyone's on new layout).
+    tc_dir = root / "evaluation" / "test_cases"
     candidates = [
+        tc_dir / "test_cases_v1_by_pankaj.labeled.jsonl",
+        tc_dir / "test_cases_v2_by_gurnoor.CLEAN.dedup.jsonl",
+        tc_dir / "test cases_v1_by_Gurnoor.labeled.jsonl",
+        # legacy root-level locations (pre-reorg)
         root / "test_cases_v1_by_pankaj.labeled.jsonl",
         root / "test_cases_v2_by_gurnoor.CLEAN.dedup.jsonl",
         root / "test cases_v1_by_Gurnoor.labeled.jsonl",

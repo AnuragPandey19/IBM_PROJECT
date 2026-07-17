@@ -14,14 +14,14 @@ DESIGN GOALS
    produce noise, not signal. This is called out in the summary.
 
 3. The result filename mirrors the input filename with a `result_` prefix:
-     Input:  "test cases_v1_by_Gurnoor.labeled.jsonl"
-     Output: "result_test cases_v1_by_Gurnoor.labeled.jsonl"
-             "result_test cases_v1_by_Gurnoor.labeled_summary.json"
+     Input:  "evaluation/test_cases/test cases_v1_by_Gurnoor.labeled.jsonl"
+     Output: "evaluation/results/result_test cases_v1_by_Gurnoor.labeled.jsonl"
+             "evaluation/results/result_test cases_v1_by_Gurnoor.labeled_summary.json"
 
 USAGE
 -----
     python scripts/run_labeled_test_cases.py \
-        --input "test cases_v1_by_Gurnoor.labeled.jsonl" \
+        --input "evaluation/test_cases/test cases_v1_by_Gurnoor.labeled.jsonl" \
         --backend https://undebuggedbit-chimera-fd.hf.space \
         --email you@example.com \
         --password YOUR_PASSWORD
