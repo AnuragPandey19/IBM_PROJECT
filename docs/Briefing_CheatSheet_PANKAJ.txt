@@ -1,0 +1,286 @@
+====================================================================
+  CHIMERA-FD  MENTOR BRIEFING  —  CHEAT SHEET
+  For: PANKAJ SINGH   (Model research + retrain orchestration)
+====================================================================
+
+YOUR SLIDES (8 slides)
+
+  S8  Explainability / SHAP
+  S9  Fusion of Model (honest null)
+  S10 Summary of Model Result
+  S11 Model Architecture UML
+  S12 The Strongest Proof (cross-dataset)
+  S15 Feature Engineering
+  S16 Isotonic Calibration
+  S24 Fix — Augmentation + Retrain
+  S25 Post-Retrain Typology results
+
+Total speaking time: ~7-8 minutes.
+
+--------------------------------------------------------------------
+S8 — EXPLAINABILITY / SHAP
+--------------------------------------------------------------------
+Say (open):
+  "SHAP — Shapley Additive Explanations — tells us how much each
+   feature pushed a specific transaction toward fraud or away from it.
+   This is what an analyst sees on the dashboard next to every flag."
+
+Walk the top-8 IEEE-CIS features table:
+  1. card1 target encoding             (1.55)
+  2. C13 (Vesta counting)              (0.41)
+  3. C1  (Vesta counting)              (0.41)
+  4. card1 mean amount before ★        (0.32)
+  5. Transaction amount                (0.31)
+  6. card1 sum amount before ★         (0.31)
+  7. addr1 target encoding             (0.27)
+  8. R_emaildomain target enc          (0.24)
+
+Key line:  "Six of the top ten SHAP-important features are ones we
+            engineered — target encodings, per-card velocity."
+
+Walk the example transaction:
+  - Predicted fraud probability: 1.000
+  - Actual label: FRAUD (correct catch)
+  - Top drivers:
+      ↑ card1 historical fraud rate  (+10.83)
+      ↑ V317 = 990 (Vesta signal)    (+1.40)
+      ↑ V294 = 8                     (+0.99)
+      ↑ M5 = 2                       (+0.72)
+      ↑ card2 historical fraud rate  (+0.66)
+
+--------------------------------------------------------------------
+S9 — FUSION OF MODEL (HONEST NULL)
+--------------------------------------------------------------------
+Say (frame the honesty):
+  "We combined Stage 1 output with Stage 2 embeddings via a small
+   MLP. Empirically on IEEE-CIS, fusion matches Stage 1 alone —
+   it does NOT improve over it. We report this honestly."
+
+Head-to-head (TEST PR-AUC):
+  - Stage 1 alone (LightGBM)        0.5036   ← Winner
+  - Stage 2 alone (GraphSAGE)       0.4336
+  - Fusion (LGBM + GNN embeddings)  0.4845   ← Slightly below Stage 1
+
+Why fusion did not help (say this):
+  "Stage 1's engineered velocity features plus target-encoded card1
+   identity already capture most of the relational signal that
+   GraphSAGE learns from the card1 subgraph. There is limited
+   independent information to fuse."
+
+Then say:
+  "On a dataset with richer multi-hop patterns — money mule networks,
+   cyclic transactions across accounts — fusion would likely help
+   more. This is exactly the kind of honest three-axis evaluation
+   our approach advocates: we report what actually happened."
+
+--------------------------------------------------------------------
+S10 — SUMMARY OF MODEL RESULT
+--------------------------------------------------------------------
+Walk the table:
+  Stage 1 LightGBM (IEEE-CIS)   PR-AUC 0.5036  ROC-AUC 0.8678  Primary
+  Stage 1 LightGBM (Sparkov)    PR-AUC 0.805   ROC-AUC 0.986   Post-retrain deployed
+  Stage 2 GraphSAGE alone       PR-AUC 0.4336  ROC-AUC 0.8516  Standalone
+  Fusion (LGBM + GNN)           PR-AUC 0.4845  ROC-AUC 0.8402  Honest null
+
+Additional (say the bottom line):
+  "Calibration reduced TEST ECE by 80.3% (0.0474 → 0.0093 on IEEE-CIS).
+   Sparkov post-retrain: Brier 0.0008, ECE 0.0006 — extremely well
+   calibrated. SHAP explanations generated on 2,000 validation
+   transactions in 11 seconds. Feature engineering delivered 6 of the
+   top 10 SHAP-important features."
+
+** IMPORTANT ** — the Sparkov number was ORIGINALLY 0.4236 in an older
+version of this slide. Anurag updated it to 0.805 which is the current
+post-retrain deployed model. If mentor asks about 0.4236 — that was
+the pre-augmentation baseline before we found the blind spots.
+
+--------------------------------------------------------------------
+S11 — MODEL ARCHITECTURE UML
+--------------------------------------------------------------------
+Say (walk the class diagram):
+  - ModelService — the singleton, loaded once at FastAPI startup.
+    Holds:
+      * stage1 : Stage1LightGBM (IEEE-CIS model)
+      * calibrator : IsotonicCalibrator
+      * sparkov_model : Stage1LightGBM (deployed model)
+      * feature_columns, sparkov_feature_columns
+      * model_version, sparkov_model_version
+    Methods: load(), warmup(), score(X), shap(X, top_k),
+             score_sparkov(X), shap_sparkov(X, top_k)
+
+  - Stage1LightGBM — wraps lgb.Booster, exposes predict_proba(X),
+    load(path).
+
+  - IsotonicCalibrator — wraps sklearn IsotonicRegression, exposes
+    transform(raw) → calibrated.
+
+  - SparkovLookups (singleton) — holds target-encoding dicts for
+    merchant, city, job, zip + global_target_mean.
+
+Key line:  "ModelService owns two Stage1LightGBM instances — one for
+            IEEE-CIS research, one for Sparkov deployed. Same class,
+            different weights."
+
+--------------------------------------------------------------------
+S12 — THE STRONGEST PROOF (cross-dataset)
+--------------------------------------------------------------------
+Say (open):
+  "The real test of any ML system is whether it generalises. We
+   applied the exact same methodology — LightGBM + velocity +
+   target encoding + no-SMOTE + cost-sensitive weighting — on two
+   very different datasets. It works."
+
+Walk the table:
+  Metric              | IEEE-CIS | Sparkov | Note
+  TEST PR-AUC         | 0.5036   | 0.805   | Sparkov post-retrain stronger
+  TEST ROC-AUC        | 0.8678   | 0.986   | Both strong rankers
+  TEST ECE            | 0.0093   | 0.0006  | Both well-calibrated
+  Fraud rate          | 3.5%     | 0.24%   | Sparkov much rarer
+  Feature count       | 456      | 30      | Different scale
+
+Close with:  "The same methodology transfers across two datasets
+              with very different feature spaces. Two of the top-10
+              Sparkov features are our engineered velocity features —
+              same feature type that dominated IEEE-CIS."
+
+--------------------------------------------------------------------
+S15 — FEATURE ENGINEERING
+--------------------------------------------------------------------
+Say (30 engineered features from 8 checkout fields):
+  Temporal:
+    hour, dow, is_weekend, is_night, hour_sin / hour_cos
+  Amount:
+    log1p(amt), amt buckets, amt-per-category z-score
+  Geographic:
+    state target-encoded, ZIP prefix, Haversine distance
+  Velocity:
+    cc_num_amt_mean_before, cc_num_amt_ratio_to_mean,
+    prior_transaction_count
+  Categorical encoding:
+    Target encoding for high-card fields (zip, merchant),
+    LightGBM native for low-card
+  Customer profile (demo):
+    demo_profile in {new, established, senior, high_spender},
+    avg_past_amt, profile-specific priors
+
+Key line:  "Everything derives from the 8 checkout fields, so there
+            is no train/serve skew. And every feature has a comment
+            in code saying whether it is available at prediction time —
+            future data is deliberately excluded to prevent leakage."
+
+--------------------------------------------------------------------
+S16 — ISOTONIC CALIBRATION
+--------------------------------------------------------------------
+Say (why calibration matters):
+  - "A raw LightGBM score of 0.7 does NOT literally mean 70% chance
+     of fraud."
+  - "For risk-based routing — approve / review / block — we need
+     meaningful probabilities."
+  - "PSD2 and RBI expect thresholded decisions to be defensible.
+     That requires calibrated scores."
+
+Say (isotonic vs Platt):
+  - "Platt fits a sigmoid — only one shape, symmetric."
+  - "Isotonic fits any monotone step function — flexible enough for
+     tree-ensemble score shapes."
+  - "On our Sparkov val set: Brier 0.0016, ECE 0.0013 — well within
+     the trustworthy range."
+
+Post-retrain final numbers to know:
+  - Test Brier: 0.0008
+  - Test ECE:   0.0006
+
+Point at the reliability diagram:  "Navy line — uncalibrated LightGBM,
+sags below the diagonal at higher probabilities. Gold line — isotonic
+recalibrated, hugs the diagonal closely."
+
+--------------------------------------------------------------------
+S24 — FIX: AUGMENTATION + RETRAIN
+--------------------------------------------------------------------
+Say (what you did):
+  - "Built scripts/augment_sparkov_training.py — synthesises card_testing
+     and velocity_spike rows matching the real distribution."
+  - "card_testing: ~3% of training set — amounts $0.50-$10, categories
+     misc_net / entertainment / misc_pos / personal_care."
+  - "velocity_spike: ~3% — established cc_num with 100+ prior txns,
+     then a single 5-20x ratio charge."
+  - "Retrained Sparkov Stage 1 in 680 seconds on 3.05 M rows."
+  - "Retuned thresholds — approve<0.05, block>0.30 (was 0.010 / 0.050)
+     to match the widened score distribution."
+  - "Added typology stress evaluation to the training script — per-typology
+     recall lands in sparkov_evaluation.json on every retrain."
+
+Aggregate outcomes to say out loud:
+  - Val PR-AUC   0.827
+  - Test PR-AUC  0.805
+  - Val ROC-AUC  0.984
+  - Test ROC-AUC 0.986
+  - Val Brier    0.0016
+  - Test Brier   0.0008
+  - Val ECE      0.0013
+  - Test ECE     0.0006
+
+Key line:  "We identified the failure at the DATA level, not just at
+            the model level. Adding rules on top would have masked the
+            problem. Retraining with augmented data means the model
+            itself learned the pattern — the safety-net rules are now
+            a belt-and-suspenders layer, not the primary defence."
+
+--------------------------------------------------------------------
+S25 — POST-RETRAIN TYPOLOGY RESULTS
+--------------------------------------------------------------------
+Say (open with the wins):
+  - "card_testing recall: 0% → 63.8% blocked."
+  - "velocity_spike recall: 5% → 23.7% blocked + 28.3% review."
+
+Then read the chart:
+  - Red = model blocks, gold = review, green = approves
+  - For FRAUD typologies (F), red is what we want:
+      weekend_spike 99.9%,  late_night_bulk_fraud 100%,
+      card_testing 63.8%,   cross_category_fraud 38.1%,
+      velocity_spike 23.7% (+28% review)
+  - For LEGIT typologies (L), green is what we want:
+      routine_grocery 100%,   fuel_purchase 99.6%,
+      senior_routine 88.5%,   corporate_lunch 79.8%,
+      wedding_order 66.8%,    high_value_regular 40.7%,
+      late_night_hostel 35.2%
+
+Own the remaining issues:
+  - "high_value_regular over-blocking at 35.7% — safety-net threshold
+     tuning candidate."
+  - "late_night_hostel over-blocking at 57.6% — needs a smoothed
+     hour-risk feature. That's on the roadmap."
+
+====================================================================
+Q&A DOMAIN — YOU handle:
+  - Anything model-specific: LightGBM vs XGBoost, why leaf-wise growth,
+    scale_pos_weight math, feature engineering choices, target encoding
+    vs one-hot, isotonic vs Platt calibration.
+  - "Why not deep learning?"  → Latency (<5 ms), interpretability
+    (SHAP > attention weights for a business user), and tabular
+    performance (trees are the sweet spot per Thivaios 2025).
+  - "How did you handle class imbalance?"  → scale_pos_weight ~ 400,
+    never SMOTE. Cost-sensitive at the loss level.
+  - "What's the fusion result mean?"  → An honest null. Stage 1 alone
+    beats fusion on IEEE-CIS because velocity + target encoding already
+    capture the graph signal from card1 subgraph.
+  - "Cross-dataset generalisation?"  → Same methodology, two datasets:
+    IEEE-CIS baseline vs Sparkov post-retrain 0.805 test PR-AUC.
+    Two of top-10 Sparkov features are engineered velocity — same type
+    that dominated IEEE-CIS.
+  - "Why augmented, not fine-tuned?"  → Fine-tuning would leak test
+    cases into the model. Augmentation is training-time synthetic
+    data that the model never sees at test time.
+====================================================================
+
+FINAL REMINDERS
+  - Practice saying "0.805" and "0.0006" until they come out
+    confidently — these numbers are the strongest thing you have.
+  - When you show a table with numbers, PAUSE for 2 seconds after
+    each headline number. Let the mentor absorb.
+  - If asked a Sparkov number and you're unsure, say "let me refer
+    to the evaluation JSON" — it's saved at reports/sparkov_evaluation.json.
+  - You OWN the honest null on S9 — that's actually your strongest
+    slide because it shows research maturity. Don't apologise for it.
+
+Good luck.

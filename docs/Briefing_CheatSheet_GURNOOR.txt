@@ -1,0 +1,219 @@
+====================================================================
+  CHIMERA-FD  MENTOR BRIEFING  —  CHEAT SHEET
+  For: GURNOOR MULTANI   (Literature review + dataset research)
+====================================================================
+
+YOUR SLIDES (7 slides)
+
+  S2  Agenda
+  S3  The Problem
+  S4  CHIMERA-FD acronym
+  S5a Research Foundation (5 papers)
+  S5b Research Gap — Where We Diverge
+  S6  Dataset Landscape
+  S7  Why Sparkov Runs Our Live Demo
+
+Total speaking time: ~5-6 minutes.
+
+--------------------------------------------------------------------
+S2 — AGENDA
+--------------------------------------------------------------------
+Say (30 seconds — walk the 7 sections):
+  "Over the next ~25 minutes we'll cover the fraud problem and why
+   rule engines aren't enough, the research corpus and the one
+   paradox that shapes our design, our dataset choices, the system
+   architecture and tech stack, our testing methodology and hard
+   numbers before and after retrain, and finally our challenges and
+   roadmap."
+
+Handoff:  "Let me start with the problem."
+
+--------------------------------------------------------------------
+S3 — THE PROBLEM
+--------------------------------------------------------------------
+Say (open with the numbers):
+  - "Global card fraud losses in 2022 — $33.5 billion, growing."
+  - "Roughly 75% is card-not-present fraud."
+  - "A checkout has ~200 ms before the user thinks it's broken."
+  - "Fraud rate is typically 0.1% to 3% — so accuracy is a useless
+     metric. A model predicting 'legit' for everything scores 97%
+     accuracy and catches zero fraud."
+
+Then explain why rule engines fail:
+  - Fraudsters adapt — a $10K rule dies when someone tries $9,999
+  - Rules don't generalise — every pattern needs a hand-written rule
+  - Rules ignore context — $500 from Singapore is normal for one
+    customer, a red flag for another
+
+Close with the constraint stack:
+  - Class imbalance kills accuracy as a metric
+  - Real-time constraint kills deep transformer models
+  - Regulatory explainability (PSD2, GDPR Article 22, RBI, PCI-DSS)
+    kills black-box approaches
+
+Handoff:  "That's the constraint stack. The name CHIMERA-FD encodes
+           our answer to each of these — let me walk through it."
+
+--------------------------------------------------------------------
+S4 — CHIMERA-FD ACRONYM
+--------------------------------------------------------------------
+Say (walk each letter — brief):
+  C — Cascaded  — fast triage first, expensive specialist only when
+                  uncertain
+  H — Hybrid    — LightGBM + GraphSAGE, two model families
+  I — Inference — designed for real-time, not batch
+  M — Multi-modal — tabular + graph signals fused
+  E — Explanations — SHAP + GNNExplainer + counterfactuals
+  R — Recalibration — isotonic regression makes probabilities
+                       actually mean what they say
+  A — Adaptive  — feedback loop retrains Stage 1 daily, Stage 2 weekly
+  FD — Fraud Detection — the end product this all serves
+
+Key line:  "The name is not marketing — every letter maps to a
+            design commitment made at the start of the sprint."
+
+Handoff:  "Now the research that these design choices are grounded in."
+
+--------------------------------------------------------------------
+S5a — RESEARCH FOUNDATION (5 papers)
+--------------------------------------------------------------------
+Say (open with the framing):
+  "Our methodology rests on 16 papers, but five are load-bearing —
+   each maps to a specific design pillar."
+
+Walk the hero paper first:
+  ★ [14] Zafar & Wu, AI Review 59:115 (Feb 2026) —
+    The Explainability-Imbalance Paradox.
+    "They showed that SMOTE-trained fraud models produce SHAP
+     explanations against a distribution that doesn't exist. Four out
+     of sixteen papers we reviewed fall into this trap. Nobody had
+     published a clean fix — so we codified 'never resample, only
+     reweight' as a project-wide rule."
+
+Then walk the four supporting papers (one line each):
+  [13] Thivaios et al. 2025 (ML/DL fraud survey) →
+       justifies LightGBM Stage 1 as the fast triage layer.
+
+  [10] Nie et al. 2025 (Calibrated Risk Scoring) →
+       validates isotonic recalibration as first-class concern.
+
+  [2]  Cheng et al. 2024 (GNN Review) →
+       shaped Stage 2 GraphSAGE exploration + honest null on fusion.
+
+  [5]  Almalki & Masud 2025 (XAI + Stacking) →
+       three-axis evaluation stance (detection · calibration ·
+       explainability).
+
+Handoff:  "Let me show exactly how we diverge from each."
+
+--------------------------------------------------------------------
+S5b — RESEARCH GAP — WHERE WE DIVERGE
+--------------------------------------------------------------------
+Say (walk the table row by row):
+
+  Zafar & Wu — they identified the paradox, didn't publish a fix.
+  WE codified 'never resample' as an invariant, using LightGBM
+  scale_pos_weight ~ 400 for cost-sensitive loss.
+
+  Thivaios — surveyed and concluded gradient-boosted trees are the
+  sweet spot on tabular fraud.
+  WE chose LightGBM as Stage 1 — the tree ensemble handles 92% of
+  traffic in <5 ms, keeping the 200 ms latency budget intact.
+
+  Nie — proposed calibrated risk scoring for GNNs.
+  WE applied isotonic recalibration on tree outputs and now report
+  Brier + ECE on every evaluation. Post-retrain: Brier 0.0008,
+  ECE 0.0006.
+
+  Cheng — reviewed GNNs for fraud, showed multi-hop signal helps.
+  WE tried GraphSAGE, ran full fusion evaluation. Stage 1 alone
+  0.5036 vs Fusion 0.4845. Honest null reported.
+
+  Almalki & Masud — XAI + stacking, framed explainability as
+  first-class.
+  WE adopted a three-axis stance — detection, calibration,
+  explanation faithfulness — reporting all three on every model.
+
+Close with the pattern:  "We don't compete with any single paper.
+We synthesise five into a coherent methodology that is honest
+about its trade-offs."
+
+Handoff:  "Now the datasets."
+
+--------------------------------------------------------------------
+S6 — DATASET LANDSCAPE
+--------------------------------------------------------------------
+Say (walk the table):
+  - IEEE-CIS  — 590K real card-not-present transactions from Vesta,
+                434 named features, ~3.5% fraud rate.
+                Use: primary research + Stage 1 baseline.
+  - Sparkov   — ~3.4M simulated txns, named merchant categories,
+                0.24–0.49% fraud rate.
+                Use: live demo + deployed model.
+  - ULB Kaggle — 284K real European transactions, but features are
+                PCA-anonymised (V1–V28).
+                REJECTED — makes SHAP explanations meaningless.
+  - PaySim    — 6.36M simulated mobile-money transactions.
+                Considered but wrong transaction type.
+
+Close with:  "IEEE-CIS is what you write papers with. Sparkov is
+              what you ship a live demo with. ULB is what you reject
+              because you can't explain a PCA'd feature to a business
+              user."
+
+--------------------------------------------------------------------
+S7 — WHY SPARKOV RUNS OUR LIVE DEMO
+--------------------------------------------------------------------
+Say (left column — IEEE-CIS):
+  - 590,540 real card-not-present transactions from Vesta
+  - 434 named + engineered features — meaningful SHAP
+  - Baseline: Stage 1 LightGBM PR-AUC 0.5036, ROC-AUC 0.8678
+  - Time-based 80/10/10 split (never random on time series)
+  - Class imbalance handled via scale_pos_weight, never SMOTE
+
+Say (right column — Sparkov):
+  - 3.42 M simulated transactions, 0.24–0.49% fraud rate
+  - Named merchant categories (misc_net, entertainment, etc.) —
+    plug directly into a checkout UI
+  - Post-augmentation retrain: PR-AUC 0.827 (val), 0.805 (test),
+    ROC-AUC 0.986
+  - Brier 0.0008, ECE 0.0006 — extremely well calibrated
+  - 12 fraud typologies used to stress-test
+
+Key line:  "IEEE-CIS proves the method works on a hard benchmark.
+            Sparkov proves the method ships."
+
+Handoff:  "Now Pankaj will walk you through the model layer —
+           starting with what SHAP told us about our features."
+
+====================================================================
+Q&A DOMAIN — YOU handle:
+  - "Why these papers and not others?"  → "16-paper corpus assembled
+    over the first two weeks; the five load-bearing ones map to
+    specific design choices we can defend."
+  - "Why IEEE-CIS over ULB Kaggle?"    → PCA-anonymised features
+    make SHAP meaningless. Business users need interpretable feature
+    names.
+  - "Why two datasets?"                → IEEE-CIS is the research
+    benchmark; Sparkov's schema maps cleanly to a checkout payload
+    (cardholder, merchant, amount, category) so it drives the demo.
+  - "What did Zafar and Wu actually show?"  → SMOTE reshapes the
+    training distribution; SHAP on top explains the reshaped
+    distribution, not reality. 4/16 papers we reviewed fall into
+    this trap.
+  - "Isn't PR-AUC 0.5 low?"            → Sparkov post-retrain is
+    0.805, not 0.5. IEEE-CIS baseline is 0.5036 but on a much harder,
+    more anonymised dataset. Cross-dataset comparison is on Slide 12.
+====================================================================
+
+FINAL REMINDERS
+  - Rehearse S5a and S5b out loud twice — those are the two slides
+    the mentor is most likely to push on ("why these papers?").
+  - When you say a paper name, say the year — Zafar and Wu 2026, not
+    just Zafar and Wu.
+  - If mentor asks about a specific paper NOT in the five, say
+    "That's in our broader corpus on the references slide — its
+    contribution is [one-line summary]."
+  - Keep it under 6 minutes total.
+
+Good luck.

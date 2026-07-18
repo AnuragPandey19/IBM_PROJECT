@@ -1,0 +1,279 @@
+====================================================================
+  CHIMERA-FD  MENTOR BRIEFING  —  CHEAT SHEET
+  For: ANURAG PANDEY   (Project lead — architecture, backend, frontend,
+                        augmenter, deployment, retrain orchestration)
+====================================================================
+
+YOUR SLIDES (10 primary + demo lead + closing)
+
+Slides you present solo unless noted:
+  S1  Title
+  S13 System Architecture
+  S14 Model Pipeline
+  S17 Decision Augmenter
+  S18 Tech Stack           (co-present: Pankaj on ML, Sanvi on Testing)
+  S19 Security & Multi-tenancy
+  S23 What We Found (audit)
+  S26 Deployment
+  S27 Challenges & Roadmap (co-present: Pankaj on model roadmap,
+                             Sanvi on incoming 1.5-2M test cases)
+  S28 Live Demo (drive + open + close)
+  S29 In One Slide (closing)
+
+--------------------------------------------------------------------
+S1 — TITLE
+--------------------------------------------------------------------
+Say (30 seconds, open the deck):
+  "Good morning. This is CHIMERA-FD, our IBM internship deliverable —
+   a two-stage fraud detection system with cost-sensitive learning,
+   calibrated probabilities, and a safety-net augmenter, deployed
+   live on Hugging Face Spaces. About 25 minutes with Q&A at the end."
+
+Introduce team by real roles:
+  - Anurag — full-stack + system architecture + deployment
+  - Pankaj — model research and retrain
+  - Gurnoor — literature review and dataset research
+  - Sanvi  — test case authoring and validation
+
+Handoff:  "I'll open with the agenda, then hand over to Gurnoor for
+           the problem statement and research foundation."
+
+--------------------------------------------------------------------
+S13 — SYSTEM ARCHITECTURE
+--------------------------------------------------------------------
+Say:
+  - "End-to-end request flow — browser → Next.js frontend → FastAPI
+     gateway → model service → decision augmenter → SQLAlchemy → Postgres."
+  - "One Docker image on port 7860 serves both frontend and API."
+  - "SQLite for local dev, Postgres for prod — same ORM, same code."
+  - "Auto column-add migration on startup — safe schema evolution
+     without full Alembic overhead."
+  - "Multi-tenant by construction — every request scoped to company_id."
+
+Know for Q&A:
+  - Why FastAPI over Flask?  Async, automatic OpenAPI, Pydantic v2.
+  - Why Postgres on Render?  Free tier, internal URL, JDBC-compatible.
+  - Warmup?  Stage 1 LightGBM loaded at process start —
+             first-request latency stays flat (<5 ms).
+  - What is decision augmenter?  Explain in S17.
+
+--------------------------------------------------------------------
+S14 — MODEL PIPELINE
+--------------------------------------------------------------------
+Say (walk 5 stages left to right):
+  1. Raw checkout payload (8 fields) → feature builder (30 features)
+  2. LightGBM Stage 1 (Sparkov, 3.05 M train rows, scale_pos_weight ~ 400)
+  3. Isotonic recalibration → calibrated probability
+     (Brier 0.0008, ECE 0.0006)
+  4. Threshold gate: approve<0.05, block>0.30, review otherwise
+  5. Decision augmenter (3 safety-net rules) → final decision + rule_ids
+     → persist to Postgres
+
+Say (key line):
+  "Every stage is idempotent — same input, same output, safe to replay.
+   Both the raw model score AND the augmenter-modified decision are
+   persisted, so 'rule fired' vs 'model decided' is auditable per txn."
+
+Know for Q&A:
+  - Latency:  < 5 ms end-to-end for 92% of traffic.
+  - Why threshold 0.05 / 0.30?  Retuned post-augmentation retrain to
+    match widened score distribution — see S24.
+
+--------------------------------------------------------------------
+S17 — DECISION AUGMENTER
+--------------------------------------------------------------------
+Say (design principle first):
+  "Rules can only tighten a decision — approve → review. They never
+   unblock or auto-approve. The review bucket is our controlled
+   uncertainty layer."
+
+Then walk the 3 rules:
+  R1  card_testing_small_amount   — new profile + amount<$10 +
+                                     misc_net/entertainment/misc_pos/personal_care
+  R2  velocity_spike_established   — established/senior + amount > 5x avg
+  R3  evening_new_high_amount      — new + hour 20-23 + amount > $1000
+
+Key win:
+  "The augmenter lives in ONE shared module — api/services/
+   decision_augmenter.py. The checkout route, the analyst API, AND
+   our direct test runner all import from the same file, so no
+   environment drift between local / deployed / direct-model runs."
+
+Know for Q&A:
+  - Why not put rules inside model_service?  Would run for API traffic
+    but not for direct test runner → three-way drift risk.
+  - Feature flag per rule via Settings (env var, no code change).
+  - Rule outputs persisted as rules_triggered JSON column on Prediction.
+
+Handoff back to Pankaj can chime in:  "Pankaj found these blind spots
+in the V3 audit — I'll come to that on Slide 23."
+
+--------------------------------------------------------------------
+S18 — TECH STACK  (co-presented)
+--------------------------------------------------------------------
+You lead, pass mic to others on their cards:
+
+Your parts:
+  - Frontend: Next.js 15 (App Router, React 19), TypeScript, Tailwind
+  - Backend API: FastAPI + Uvicorn, SQLAlchemy 2.0 + auto-migration,
+                 Pydantic v2, JWT (HS256, bcrypt cost 12)
+  - Data: Postgres (prod) / SQLite (dev), parquet feature stores,
+          multi-tenancy scoped by company_id
+  - Deployment: HF Spaces (Docker SDK, port 7860), single multi-stage
+                Dockerfile, GitHub Actions CI, LFS-tracked model artifacts
+
+Pankaj covers ML card:  LightGBM, isotonic, SHAP, pandas/numpy.
+Sanvi covers Testing & Ops card:  pytest, multi-tenant isolation suite,
+                                   labeled-JSONL runner, structured logs.
+
+--------------------------------------------------------------------
+S19 — SECURITY & MULTI-TENANCY
+--------------------------------------------------------------------
+Say (access control):
+  - JWT bearer tokens (HS256), secret from HF Space Repository Secret
+  - bcrypt cost 12 for password hashes
+  - Public /auth/register creates only 'analyst' role — admin is
+    CLI-only via scripts/create_admin.py
+  - Rate limiting via slowapi middleware
+  - CORS restricted to production origin
+
+Say (tenant isolation):
+  - Every row-owning table has company_id FK (Transaction, Prediction, User)
+  - Router-level dependency require_company scopes every query
+  - Cross-tenant read = zero rows, fetch-by-id = 404 (not 403 — no
+    existence leak)
+  - Isolation guaranteed by tests, not by convention
+
+Key line:  "tests/test_multi_tenancy.py is the highest-value test in
+            the project. A single cross-tenant leak would destroy our
+            B2B credibility."
+
+Know for Q&A:
+  - Per-test in-memory SQLite via StaticPool
+  - Seeds Acme + Globex, exercises every read path
+  - Would you show the test file?  Yes, ready to open in editor.
+
+--------------------------------------------------------------------
+S23 — WHAT WE FOUND (audit)
+--------------------------------------------------------------------
+Say (open with the numbers):
+  - "card_testing recall: 0 out of 11,785 — literal zero"
+  - "velocity_spike recall: 5% — 636 out of 12,678"
+  - "IEEE-CIS aggregate PR-AUC 0.503 — looked fine, hid these two
+     blind spots completely"
+
+Root causes:
+  1. Sparkov simulator does NOT generate card-testing bursts —
+     training set had zero '$1.49 = fraud' examples
+  2. Velocity-spike samples under-represented — ratio feature
+     exists but under-weighted
+  3. Aggregate PR-AUC hid the failures — a $1.49 fraud scored 3e-8
+  4. Late-night-hostel legit orders over-flagged — is_night is a
+     hard binary step
+
+Own the finding:  "These are the exact failures a mentor-facing
+product cannot ship with — even if aggregate PR-AUC is publishable."
+
+--------------------------------------------------------------------
+S26 — DEPLOYMENT
+--------------------------------------------------------------------
+Say:
+  - URL: https://undebuggedbit-chimera-fd.hf.space
+  - Single multi-stage Dockerfile: Node builds Next.js → Python runtime
+    serves both API and static frontend
+  - Auto-rebuild on git push hf main
+  - Cold-boot ~5-8 min on first build, ~30 s on cached rebuild
+
+Configuration secrets:
+  - DATABASE_URL → Postgres on Render (free tier, internal URL)
+  - JWT_SECRET_KEY → 64-char hex, set as HF Space Repository Secret
+  - ENV=prod → disables /docs endpoint
+
+Know for Q&A:
+  - LFS artifacts: stage1_sparkov.pkl (~28 MB), stage3_isotonic.pkl
+  - Why HF Spaces?  Free hosting, Docker SDK, GitHub-integrated,
+                    real mentor-visitable URL
+
+--------------------------------------------------------------------
+S27 — CHALLENGES & ROADMAP  (co-presented)
+--------------------------------------------------------------------
+You lead the challenges column:
+  - Aggregate PR-AUC hid two 0%-recall blind spots — solved with
+    typology-aware evaluation
+  - Sparkov simulator has no card-testing pattern — solved with
+    synthetic augmentation (Pankaj)
+  - New thresholds required re-tuning — solved via post-retrain review
+  - Multi-tenancy easy to break — solved by test suite as source of truth
+  - HF Space storage limit (10 MB non-LFS) — solved with git filter-repo
+    + gitignore hardening
+  - Three-environment drift risk — solved by shared augmenter module
+
+Pankaj covers roadmap items on model:
+  - Stage 2 GraphSAGE for review band
+  - Fusion head combining Stage 1 + Stage 2
+  - Second retrain with typology-aware sample weights
+  - Per-hour smoothed risk feature
+  - Per-customer category-diversity feature
+
+Sanvi covers:
+  - 1.5-2M new labeled test cases arriving from the multi-agent pipeline
+  - Full re-eval + calibration audit
+
+You close:
+  - SHAP waterfall in analyst dashboard
+  - Alembic-managed migrations once schema stabilises
+
+--------------------------------------------------------------------
+S28 — LIVE DEMO (~5 minutes)  (you drive, all speak)
+--------------------------------------------------------------------
+Sequence:
+  1. You (30s):     homepage → register → login (drive the browser)
+  2. Sanvi (1min):  checkout $1.49 misc_net, "new" profile →
+                    decision routes to review with rule badge
+  3. Pankaj (1.5m): checkout $5000, "established" → velocity_spike
+                    fires → open SHAP waterfall → walk features
+  4. Gurnoor (1m):  analytics page → per-rule counts + decision donut →
+                    connect back to typologies from research design
+  5. You (30s):     logout → second company → prove multi-tenant
+                    isolation (only if time)
+
+Backup plan if HF Space slow:
+  - Local screenshots ready in docs/ folder as fallback
+  - HF logs viewer open in a second tab
+
+--------------------------------------------------------------------
+S29 — IN ONE SLIDE (closing)
+--------------------------------------------------------------------
+Say the three pillars out loud:
+
+  1. Methodologically honest — cost-sensitive loss (never SMOTE),
+     calibrated probabilities (Brier 0.0008, ECE 0.0006),
+     three-axis evaluation.
+
+  2. Production-shaped — FastAPI + Postgres + JWT + multi-tenancy
+     tests + one Docker image on Hugging Face Spaces.
+
+  3. Stress-tested — 150,714 labeled rows across 12 typologies,
+     generated by 12 diverse LLM agents in a validator-loop pipeline.
+
+Close with:
+  "CHIMERA-FD is a shippable, defensible fraud detection system —
+   not a Kaggle notebook. Live at undebuggedbit-chimera-fd.hf.space.
+   Happy to take questions."
+
+====================================================================
+Q&A DOMAIN — you handle:
+  - Anything about architecture, backend, frontend, DB, auth, ops,
+    deployment, HF Spaces, tenancy, migrations, git history rewrite.
+  - Why cost-sensitive over SMOTE (share this with Gurnoor).
+  - How the augmenter avoids drift across environments.
+====================================================================
+
+FINAL REMINDERS
+  - Speak slowly on numbers (0.827, 0.0006, 150,714).
+  - When mentor asks a question, name the slide you're referring back to.
+  - If you don't know something, say "Let me check the code" and open
+    the repo — better than guessing.
+  - Sleep more than 6 hours. Sharp beats prepared-but-tired.
+
+Good luck.

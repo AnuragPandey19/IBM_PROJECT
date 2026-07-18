@@ -66,11 +66,13 @@ evaluation/
 # gets them via direct file share, not the repo. Markdown docs in docs/
 # stay tracked (small, review-friendly). docs/archive/ is fully blocked.
 docs/*.docx
+docs/*.pptx
 docs/*.pdf
 docs/archive/
 
 # Repo-root docx/pdf (should be empty after reorg, safety net for accidents)
 *.docx
+*.pptx
 *.pdf
 
 
@@ -133,3 +135,4 @@ config/secrets.yaml
 
 # --- Docker -------------------------------------------------------------------
 docker-compose.override.yml
+
