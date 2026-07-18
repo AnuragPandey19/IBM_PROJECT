@@ -67,6 +67,7 @@ evaluation/
 # stay tracked (small, review-friendly). docs/archive/ is fully blocked.
 docs/*.docx
 docs/*.pptx
+docs/*.txt
 docs/*.pdf
 docs/archive/
 
