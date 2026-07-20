@@ -32,6 +32,7 @@ Each rule is toggled by a boolean setting in `api.config.Settings`. Ops
 can disable a rule via env var + factory rebuild without touching code:
 
   ENABLE_SAFETY_NET_CARD_TESTING=false
+  ENABLE_SAFETY_NET_NIGHT_MICRO=false
   ENABLE_SAFETY_NET_VELOCITY_SPIKE=false
   ENABLE_SAFETY_NET_NIGHT_NEW_HIGH=false
 
@@ -53,6 +54,34 @@ _CARD_TESTING_TARGET_CATEGORIES = frozenset({
     "entertainment",    # streaming/gaming subscriptions
     "misc_pos",         # small in-store misc
     "personal_care",    # low-friction online personal-care merchants
+})
+
+
+# Categories with a hard empirical floor on legitimate LATE-NIGHT spending.
+#
+# DERIVATION (data/processed/sparkov/train_features.parquet, 1,481,915 rows —
+# the model's own TRAINING distribution; the held-out Pankaj30m set was not
+# consulted, see v2-chimera-fd/evaluation/RULE_CHANGE_PROPOSAL.md):
+#
+#   In the window hour 0-5, across 143,060 LEGITIMATE transactions:
+#       gas_transport : n=74,886  minimum = $17.61   (p01 = $32.20)
+#       grocery_pos   : n=68,174  minimum = $10.87   (p01 = $32.61)
+#   Zero legitimate training transactions in these two categories fall
+#   below $10.00 at night. A sub-$10 night transaction here is outside the
+#   support of legitimate spending as the model was trained to see it.
+#
+#   grocery_net (min $1.44) and food_dining (min $1.06) are DELIBERATELY
+#   EXCLUDED — legitimate night-time spending in those categories genuinely
+#   reaches ~$1, so a low-amount rule there would fire on real customers.
+#
+# NOTE ON DIRECTION: this rule is NOT anchored on "small amount = fraud".
+# Sparkov's training data contains no card testing whatsoever — the cheapest
+# fraudulent night transaction in 1.48M rows is $5.60. The rule is anchored
+# on the absence of legitimate traffic, which is measurable, rather than on
+# the presence of fraud, which in this dataset is not.
+_NIGHT_MICRO_CATEGORIES = frozenset({
+    "gas_transport",
+    "grocery_pos",
 })
 
 
@@ -112,6 +141,13 @@ def apply_safety_nets(
     hour = _safe_int(payload.get("demo_hour_override"))
 
     # -------- Rule 1: card_testing (small amount + new + suspicious cat) --
+    # The `demo_profile == "new"` guard below looks removable — the post-3M
+    # audit shows this rule firing zero times. It is NOT removable. In these
+    # four categories, 32.6% of all LEGITIMATE training transactions are
+    # under $10.00 and every category has a legit minimum of $1.00. Dropping
+    # the profile guard would fire the rule on roughly a third of legitimate
+    # traffic in these categories — the same failure mode as the 2026-07-18
+    # augmentation regression. Widen the rule only with new evidence.
     if settings.enable_safety_net_card_testing:
         if (
             demo_profile_key == "new"
@@ -120,6 +156,24 @@ def apply_safety_nets(
             and category in _CARD_TESTING_TARGET_CATEGORIES
         ):
             triggered.append("card_testing_small_amount")
+
+    # -------- Rule 4: late-night micro-amount (card_testing) --------------
+    # Fires on transactions below the empirical floor of legitimate
+    # night-time spending (see _NIGHT_MICRO_CATEGORIES for the derivation).
+    # Intentionally profile-agnostic: the feasibility probe found
+    # card_testing spread across `established` and `senior`, and the floor is
+    # a property of the category and hour, not of the cardholder.
+    if settings.enable_safety_net_night_micro:
+        if (
+            amount is not None
+            and amount < settings.safety_net_night_micro_max_amount
+            and category in _NIGHT_MICRO_CATEGORIES
+            and hour is not None
+            and settings.safety_net_night_micro_hour_start
+            <= hour
+            <= settings.safety_net_night_micro_hour_end
+        ):
+            triggered.append("night_micro_amount")
 
     # -------- Rule 2: velocity_spike (established customer sudden large) --
     # DELIBERATELY EXCLUDES high_spender profile: high_spender customers

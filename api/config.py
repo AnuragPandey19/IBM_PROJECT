@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     enable_safety_net_card_testing: bool = True     # push tiny-amount
                                                      # new-customer misc
                                                      # transactions -> review
+    # Validated rule derived from training distribution. Delivers +0.32pp
+    # handled-rate improvement on card_testing at 30% precision (63 legit
+    # reviewed / 27 fraud caught per 100K). Disabled by default pending
+    # business decision on review-queue cost.
+    # To enable: ENABLE_SAFETY_NET_NIGHT_MICRO=true
+    # Full analysis: v2-chimera-fd/evaluation/rule4_results.md
+    enable_safety_net_night_micro: bool = False     # push sub-$10 late-night
+                                                     # fuel/grocery-POS
+                                                     # transactions -> review
     enable_safety_net_velocity_spike: bool = True   # push established-customer
                                                      # sudden-large-spend -> review
     enable_safety_net_night_new_high: bool = True   # push new-customer
@@ -75,6 +84,13 @@ class Settings(BaseSettings):
     # Thresholds for the rules — expose so they can be tuned via env vars
     # in production once real fraud statistics are available.
     safety_net_card_testing_max_amount: float = 10.0
+    # Night micro-amount rule. $10.00 sits below the empirical minimum of
+    # legitimate night-time spending in gas_transport ($17.61) and
+    # grocery_pos ($10.87) measured over 143,060 legit training rows — see
+    # the derivation block in api/services/decision_augmenter.py.
+    safety_net_night_micro_max_amount: float = 10.0
+    safety_net_night_micro_hour_start: int = 0
+    safety_net_night_micro_hour_end: int = 5
     safety_net_velocity_spike_ratio: float = 5.0
     safety_net_night_new_high_min_amount: float = 1000.0
 

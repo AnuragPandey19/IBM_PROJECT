@@ -137,3 +137,14 @@ config/secrets.yaml
 # --- Docker -------------------------------------------------------------------
 docker-compose.override.yml
 
+
+# --- V2 model sandbox — fully isolated experiment folder ----------------------
+# `v2-chimera-fd/` is a self-contained sandbox for training a candidate v2
+# Sparkov model on synthetic multi-agent-generated training data. Zero
+# interference with the deployed v1 project. If v2 promotes → the model
+# file is copied out to models/stage1_sparkov.pkl and this folder can be
+# removed. If v2 fails → this folder is deleted, project unaffected.
+# NEVER push this folder — it contains experimental artifacts + potentially
+# large generated datasets that would blow HF Space storage.
+v2-chimera-fd/
+

@@ -72,3 +72,9 @@ models/fusion_head.pt
 # CI / tests are not needed at runtime
 tests/
 .github/
+
+# V2 model experiment sandbox — isolated from prod image build
+v2-chimera-fd/
+
+# Evaluation artifacts + test cases — never in prod image
+evaluation/
