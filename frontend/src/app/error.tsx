@@ -17,7 +17,6 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     // In production we'd ship this to Sentry / Datadog. For now, console is fine.
-    // eslint-disable-next-line no-console
     console.error("Unhandled render error:", error);
   }, [error]);
 
